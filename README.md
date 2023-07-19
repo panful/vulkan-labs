@@ -20,3 +20,19 @@ sudo apt update
 sudo apt install vulkan-sdk
 ```
 如果`sudo apt install vulkan-sdk`报错，检查前两行命令是否执行成功，成功后再次update再安装
+
+## 三、编译Shader
+
+**shader文件必须以vert/frag结尾**
+
+glslc是谷歌的编译器（推荐使用）
+```shell
+glslc base.vert -o vert.spv
+glslc base.frag -o frag.spv
+```
+
+glslangValidator是官方的编译器
+```shell
+glslangValidator -V -o vert.spv base.vert
+glslangValidator -V -o frag.spv base.frag
+```
