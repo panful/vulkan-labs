@@ -11,10 +11,3 @@ target_include_directories(${target_name} PRIVATE ${Vulkan_INCLUDE_DIR})
 target_link_libraries(${target_name} PRIVATE glfw3 ${Vulkan_LIBRARIES})
 
 install(TARGETS ${target_name} RUNTIME DESTINATION .)
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/resources/shaders DESTINATION resources)
-
-add_custom_command(TARGET ${target_name}
-    PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E
-    copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/resources/shaders $<TARGET_FILE_DIR:${target_name}>/resources/shaders
-)
