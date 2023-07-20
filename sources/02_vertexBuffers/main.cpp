@@ -104,10 +104,13 @@ struct SwapChainSupportDetails
 const std::vector<Vertex> vertices  {
     {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
     {{-0.5f,  0.5f}, {1.f, 0.f, 0.f}},
-    {{ 0.0f,  0.0f}, {1.f, 0.f, 0.f}},
-    {{ 0.5f, -0.5f}, {1.f, 1.f, 0.f}},
-    {{ 0.0f,  0.0f}, {1.f, 1.f, 0.f}},
-    {{ 0.5f,  0.5f}, {1.f, 1.f, 0.f}},
+    {{ 0.5f,  0.5f}, {0.f, 1.f, 0.f}},
+    {{ 0.5f, -0.5f}, {0.f, 1.f, 0.f}},
+};
+
+const std::vector<uint16_t> indices{
+    0, 1, 2,
+    0, 2, 3,
 };
 
 // clang-format on
@@ -154,6 +157,7 @@ private:
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        CreateIndexBuffer();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
@@ -177,6 +181,8 @@ private:
 
         vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
+        vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -1111,8 +1117,10 @@ private:
         // 4.需要绑定的顶点缓冲数组
         // 5.顶点数据在顶点缓冲中的偏移值数组
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         // 绘制
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         // 提交绘制操作到指定缓冲
         // 2.顶点个数
@@ -1335,6 +1343,31 @@ private:
         // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
     }
 
+    /// @brief 创建索引缓冲
+    void CreateIndexBuffer()
+    {
+        VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
+
+        VkBuffer stagingBuffer {};
+        VkDeviceMemory stagingBufferMemory {};
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data { nullptr };
+        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
+        vkUnmapMemory(m_device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_indexBuffer, m_indexBufferMemory);
+
+        CopyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
+
+        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+    }
+
     /// @brief 创建指定类型的缓冲
     /// @details Vulkan 的缓冲是可以存储任意数据的可以被显卡读取的内存，不仅可以存储顶点数据
     /// @param size
@@ -1342,7 +1375,8 @@ private:
     /// @param properties
     /// @param buffer
     /// @param bufferMemory
-    void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+    void CreateBuffer(
+        VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const
     {
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1381,7 +1415,7 @@ private:
     /// @param srcBuffer
     /// @param dstBuffer
     /// @param size
-    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const noexcept
     {
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1422,7 +1456,7 @@ private:
     /// @param typeFilter 指定需要的内存类型的位域
     /// @param properties
     /// @return
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const
     {
         // 查找物理设备可用的内存类型
         // memoryHeaps 内存来源，比如显存以及显存用尽后的位与主存中的交换空间
@@ -1545,6 +1579,8 @@ private:
     bool m_framebufferResized { false };
     VkBuffer m_vertexBuffer { nullptr };
     VkDeviceMemory m_vertexBufferMemory { nullptr };
+    VkBuffer m_indexBuffer { nullptr };
+    VkDeviceMemory m_indexBufferMemory { nullptr };
 };
 
 int main()
