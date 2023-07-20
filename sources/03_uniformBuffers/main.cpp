@@ -16,7 +16,9 @@
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>
 
+#define GLM_FORCE_RADIANS // glm函数的参数使用弧度
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
@@ -78,6 +80,13 @@ struct Vertex
 
         return attributeDescriptions;
     }
+};
+
+struct UniformBufferObject
+{
+    glm::mat4 model { glm::mat4(1.f) };
+    glm::mat4 view { glm::mat4(1.f) };
+    glm::mat4 proj { glm::mat4(1.f) };
 };
 
 /// @brief 支持图形和呈现的队列族
@@ -153,11 +162,15 @@ private:
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
+        CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
         CreateIndexBuffer();
+        CreateUniformBuffers();
+        CreateDescriptorPool();
+        CreateDescriptorSets();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
@@ -187,6 +200,15 @@ private:
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            vkDestroyBuffer(m_device, m_uniformBuffers.at(i), nullptr);
+            vkFreeMemory(m_device, m_uniformBuffersMemory.at(i), nullptr);
+        }
+
+        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -890,7 +912,8 @@ private:
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount         = 0;
+        pipelineLayoutInfo.setLayoutCount         = 1;
+        pipelineLayoutInfo.pSetLayouts            = &m_descriptorSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
 
         if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout))
@@ -1117,17 +1140,27 @@ private:
         // 4.需要绑定的顶点缓冲数组
         // 5.顶点数据在顶点缓冲中的偏移值数组
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        // 绑定索引缓冲
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        // 绘制
-        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+        // 为每个交换链图像绑定对应的描述符集
+        // 2.指定绑定的是图形管线还是计算管线，因为描述符集并不是图形管线所独有的
+        // 3.描述符所使用的布局
+        // 4.描述符集的第一个元素索引
+        // 5.需要绑定的描述符集个数
+        // 6.用于绑定的描述符集数组
+        // 7.8.指定动态描述符的数组偏移
+        vkCmdBindDescriptorSets(
+            commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets.at(m_currentFrame), 0, nullptr);
 
         // 提交绘制操作到指定缓冲
         // 2.顶点个数
         // 3.用于实例渲染，为1表示不进行实例渲染
         // 4.用于定义着色器变量 gl_VertexIndex 的值
         // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
@@ -1166,6 +1199,9 @@ private:
         {
             throw std::runtime_error("failed to acquire swap chain image");
         }
+
+        // 每一帧都更新uniform
+        UpdateUniformBuffer(static_cast<uint32_t>(m_currentFrame));
 
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
@@ -1474,6 +1510,126 @@ private:
         throw std::runtime_error("failed to find suitable memory type");
     }
 
+    /// @brief 创建着色器使用的每一个描述符绑定信息
+    void CreateDescriptorSetLayout()
+    {
+        VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+        uboLayoutBinding.binding                      = 0;
+        uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboLayoutBinding.descriptorCount              = 1;                          // uniform 缓冲对象数组的大小
+        uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT; // 指定在哪一个着色器阶段使用
+        uboLayoutBinding.pImmutableSamplers           = nullptr;                    // 指定图像采样相关的属性
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+        layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount                    = 1;
+        layoutInfo.pBindings                       = &uboLayoutBinding;
+
+        if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout))
+        {
+            throw std::runtime_error("failed to create descriptor set layout");
+        }
+    }
+
+    /// @brief 创建Uniform Buffer
+    /// @details 由于缓冲需要频繁更新，所以此处使用暂存缓冲并不会带来性能提升
+    void CreateUniformBuffers()
+    {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+        m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        m_uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        m_uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                m_uniformBuffers.at(i), m_uniformBuffersMemory.at(i));
+            vkMapMemory(m_device, m_uniformBuffersMemory.at(i), 0, bufferSize, 0, &m_uniformBuffersMapped.at(i));
+        }
+    }
+
+    /// @brief 在绘制每一帧时更新uniform
+    /// @param currentImage
+    void UpdateUniformBuffer(uint32_t currentImage)
+    {
+        auto time   = static_cast<float>(glfwGetTime());
+        auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
+
+        UniformBufferObject ubo {};
+        ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(90.f), glm::vec3(0.f, 0.f, 1.f));
+        ubo.view  = glm::lookAt(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
+        ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
+
+        // glm的裁剪坐标的Y轴和 Vulkan 是相反的
+        ubo.proj[1][1] *= -1;
+
+        // 将变换矩阵的数据复制到uniform缓冲
+        std::memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    }
+
+    /// @brief 创建描述符池，描述符集需要通过描述符池来创建
+    void CreateDescriptorPool()
+    {
+        VkDescriptorPoolSize poolSize {};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        VkDescriptorPoolCreateInfo poolInfo {};
+        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT); // 指定可以分配的最大描述符集个数
+        poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
+
+        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
+        {
+            throw std::runtime_error("failed to create descriptor pool");
+        }
+    }
+
+    /// @brief 创建描述符集
+    void CreateDescriptorSets()
+    {
+        // 描述符布局对象的个数要匹配描述符集对象的个数
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_descriptorSetLayout);
+
+        VkDescriptorSetAllocateInfo allocInfo {};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = m_descriptorPool; // 指定分配描述符集对象的描述符池
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.pSetLayouts        = layouts.data();
+
+        // 描述符集对象会在描述符池对象清除时自动被清除
+        m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()))
+        {
+            throw std::runtime_error("failed to allocate descriptor sets");
+        }
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorBufferInfo bufferInfo {};
+            bufferInfo.buffer = m_uniformBuffers.at(i);
+            bufferInfo.offset = 0;
+            bufferInfo.range  = sizeof(UniformBufferObject);
+
+            VkWriteDescriptorSet descriptorWrite {};
+            descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
+            descriptorWrite.dstBinding       = 0;                      // 指定缓冲绑定
+            descriptorWrite.dstArrayElement  = 0;                      // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrite.descriptorCount  = 1;
+            descriptorWrite.pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
+            descriptorWrite.pImageInfo       = nullptr;     // 指定描述符引用的图像数据
+            descriptorWrite.pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
+
+            // 更新描述符的配置
+            vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+        }
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -1581,6 +1737,12 @@ private:
     VkDeviceMemory m_vertexBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
+    VkDescriptorSetLayout m_descriptorSetLayout { nullptr };
+    std::vector<VkBuffer> m_uniformBuffers {};
+    std::vector<VkDeviceMemory> m_uniformBuffersMemory {};
+    std::vector<void*> m_uniformBuffersMapped {};
+    VkDescriptorPool m_descriptorPool { nullptr };
+    std::vector<VkDescriptorSet> m_descriptorSets {};
 };
 
 int main()
