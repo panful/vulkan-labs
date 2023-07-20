@@ -102,9 +102,12 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices  {
-    {{ 0.0f, -0.5f}, {1.f, 1.f, 0.f}},
-    {{ 0.5f,  0.5f}, {1.f, 1.f, 1.f}},
-    {{-0.5f,  0.5f}, {0.f, 1.f, 1.f}},
+    {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
+    {{-0.5f,  0.5f}, {1.f, 0.f, 0.f}},
+    {{ 0.0f,  0.0f}, {1.f, 0.f, 0.f}},
+    {{ 0.5f, -0.5f}, {1.f, 1.f, 0.f}},
+    {{ 0.0f,  0.0f}, {1.f, 1.f, 0.f}},
+    {{ 0.5f,  0.5f}, {1.f, 1.f, 0.f}},
 };
 
 // clang-format on
@@ -804,8 +807,8 @@ private:
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
         inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology                               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        inputAssembly.primitiveRestartEnable                 = VK_FALSE;
+        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
 
         // 视口
         VkViewport viewport = {};
@@ -835,8 +838,8 @@ private:
         rasterizer.rasterizerDiscardEnable                = VK_FALSE; // 设置为true会禁止一切片段输出到帧缓冲
         rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth                              = 1.f;
-        rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;   // 表面剔除类型，正面、背面、双面剔除
-        rasterizer.frontFace                              = VK_FRONT_FACE_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
+        rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;           // 表面剔除类型，正面、背面、双面剔除
+        rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
         rasterizer.depthBiasEnable                        = VK_FALSE;
         rasterizer.depthBiasConstantFactor                = 1.f;
         rasterizer.depthBiasClamp                         = 0.f;
@@ -1406,7 +1409,7 @@ private:
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers    = &commandBuffer;
 
-        // 提交到内存传输指令队列，执行内存传输
+        // 提交到内存传输指令队列执行内存传输
         vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, nullptr);
         // 等待传输操作完成，也可以使用栅栏，栅栏可以同步多个不同的内存传输操作，给驱动程序的优化空间也更大
         vkQueueWaitIdle(m_graphicsQueue);
