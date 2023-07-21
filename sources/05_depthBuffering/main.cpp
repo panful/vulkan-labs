@@ -53,7 +53,7 @@ const bool g_enableValidationLayers = true;
 
 struct Vertex
 {
-    glm::vec2 pos { 0.f, 0.f };
+    glm::vec3 pos { 0.f, 0.f, 0.f };
     glm::vec3 color { 0.f, 0.f, 0.f };
     glm::vec2 texCoord { 0.f, 0.f };
 
@@ -74,7 +74,7 @@ struct Vertex
 
         attributeDescriptions[0].binding  = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT; // vec2
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT; // vec3
         attributeDescriptions[0].offset   = offsetof(Vertex, pos);
 
         attributeDescriptions[1].binding  = 0;
@@ -83,8 +83,8 @@ struct Vertex
         attributeDescriptions[1].offset   = offsetof(Vertex, color);
 
         attributeDescriptions[2].binding  = 0;
-        attributeDescriptions[2].location = 2; // 和顶点着色器的 layout(location = 2) in 对应
-        attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].location = 2;                       // 和顶点着色器的 layout(location = 2) in 对应
+        attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT; // vec2
         attributeDescriptions[2].offset   = offsetof(Vertex, texCoord);
 
         return attributeDescriptions;
@@ -120,10 +120,10 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices  {
-    { {-0.5f, -0.5f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
-    { {-0.5f,  0.5f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
-    { { 0.5f,  0.5f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
-    { { 0.5f, -0.5f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
+    { {-0.5f, -0.5f, 0.f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
+    { {-0.5f,  0.5f, 0.f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
+    { { 0.5f,  0.5f, 0.f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
+    { { 0.5f, -0.5f, 0.f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
 };
 
 const std::vector<uint16_t> indices{
