@@ -20,6 +20,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -52,6 +55,7 @@ struct Vertex
 {
     glm::vec2 pos { 0.f, 0.f };
     glm::vec3 color { 0.f, 0.f, 0.f };
+    glm::vec2 texCoord { 0.f, 0.f };
 
     static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept
     {
@@ -64,19 +68,24 @@ struct Vertex
         return bindingDescription;
     }
 
-    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
+    static constexpr std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions() noexcept
     {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions {};
 
         attributeDescriptions[0].binding  = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT; // vec2
         attributeDescriptions[0].offset   = offsetof(Vertex, pos);
 
         attributeDescriptions[1].binding  = 0;
         attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT; // vec3
         attributeDescriptions[1].offset   = offsetof(Vertex, color);
+
+        attributeDescriptions[2].binding  = 0;
+        attributeDescriptions[2].location = 2; // 和顶点着色器的 layout(location = 2) in 对应
+        attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].offset   = offsetof(Vertex, texCoord);
 
         return attributeDescriptions;
     }
@@ -111,10 +120,10 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices  {
-    {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
-    {{-0.5f,  0.5f}, {1.f, 0.f, 0.f}},
-    {{ 0.5f,  0.5f}, {0.f, 1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {0.f, 1.f, 0.f}},
+    { {-0.5f, -0.5f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
+    { {-0.5f,  0.5f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
+    { { 0.5f,  0.5f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
+    { { 0.5f, -0.5f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
 };
 
 const std::vector<uint16_t> indices{
@@ -166,6 +175,9 @@ private:
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
+        CreateTextureImage();
+        CreateTextureImageView();
+        CreateTextureSampler();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -191,6 +203,11 @@ private:
     void Cleanup() noexcept
     {
         CleanupSwapChain();
+
+        vkDestroySampler(m_device, m_textureSampler, nullptr);
+        vkDestroyImageView(m_device, m_textureImageView, nullptr);
+        vkDestroyImage(m_device, m_textureImage, nullptr);
+        vkFreeMemory(m_device, m_textureImageMemory, nullptr);
 
         vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
@@ -436,7 +453,11 @@ private:
             swapChainAdequate     = !swapChainSupport.foramts.empty() & !swapChainSupport.presentModes.empty();
         }
 
-        return indices.IsComplete() && extensionsSupported && swapChainAdequate;
+        // 是否包含各向异性过滤特性
+        VkPhysicalDeviceFeatures supportedFeatures {};
+        vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+
+        return indices.IsComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
     }
 
     /// @brief 查找满足需求的队列族
@@ -504,6 +525,7 @@ private:
 
         // 指定应用程序使用的设备特性（例如几何着色器）
         VkPhysicalDeviceFeatures deviceFeatures = {};
+        deviceFeatures.samplerAnisotropy        = VK_TRUE;
 
         VkDeviceCreateInfo createInfo      = {};
         createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -775,25 +797,7 @@ private:
 
         for (size_t i = 0; i < m_swapChainImages.size(); ++i)
         {
-            VkImageViewCreateInfo createInfo           = {};
-            createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image                           = m_swapChainImages.at(i);
-            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;         // 1d 2d 3d cube纹理
-            createInfo.format                          = m_swapChainImageFormat;
-            createInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY; // 图像颜色通过的映射
-            createInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a                    = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 指定图像的用途，图像的哪一部分可以被访问
-            createInfo.subresourceRange.baseMipLevel   = 0;
-            createInfo.subresourceRange.levelCount     = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount     = 1;
-
-            if (VK_SUCCESS != vkCreateImageView(m_device, &createInfo, nullptr, &m_swapChainImageViews.at(i)))
-            {
-                throw std::runtime_error("failed to create image views");
-            }
+            m_swapChainImageViews.at(i) = CreateImageView(m_swapChainImages.at(i), m_swapChainImageFormat);
         }
     }
 
@@ -1447,11 +1451,7 @@ private:
         vkBindBufferMemory(m_device, buffer, bufferMemory, 0);
     }
 
-    /// @brief 在缓冲之间复制数据
-    /// @param srcBuffer
-    /// @param dstBuffer
-    /// @param size
-    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const noexcept
+    VkCommandBuffer BeginSingleTimeCommands() const noexcept
     {
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1467,11 +1467,11 @@ private:
         beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // 指定如何使用这个指令缓冲
 
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
-        VkBufferCopy copyRegion = {};
-        copyRegion.srcOffset    = 0;
-        copyRegion.dstOffset    = 0;
-        copyRegion.size         = size;
-        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+        return commandBuffer;
+    }
+
+    void EndSingleTimeCommands(VkCommandBuffer commandBuffer) const noexcept
+    {
         vkEndCommandBuffer(commandBuffer);
 
         VkSubmitInfo submitInfo       = {};
@@ -1485,6 +1485,23 @@ private:
         vkQueueWaitIdle(m_graphicsQueue);
 
         vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+    }
+
+    /// @brief 在缓冲之间复制数据
+    /// @param srcBuffer
+    /// @param dstBuffer
+    /// @param size
+    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const noexcept
+    {
+        VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
+
+        VkBufferCopy copyRegion = {};
+        copyRegion.srcOffset    = 0;
+        copyRegion.dstOffset    = 0;
+        copyRegion.size         = size;
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+        EndSingleTimeCommands(commandBuffer);
     }
 
     /// @brief 查找最合适的内存类型
@@ -1511,6 +1528,7 @@ private:
     }
 
     /// @brief 创建着色器使用的每一个描述符绑定信息
+    /// @details 描述符池对象必须包含描述符集信息才可以分配对应的描述集
     void CreateDescriptorSetLayout()
     {
         VkDescriptorSetLayoutBinding uboLayoutBinding = {};
@@ -1520,10 +1538,19 @@ private:
         uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT; // 指定在哪一个着色器阶段使用
         uboLayoutBinding.pImmutableSamplers           = nullptr;                    // 指定图像采样相关的属性
 
+        VkDescriptorSetLayoutBinding samplerLayoutBinding {};
+        samplerLayoutBinding.binding            = 1;
+        samplerLayoutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerLayoutBinding.descriptorCount    = 1;
+        samplerLayoutBinding.pImmutableSamplers = nullptr;
+        samplerLayoutBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT; // 指定在片段着色器使用
+
+        std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+
         VkDescriptorSetLayoutCreateInfo layoutInfo = {};
         layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount                    = 1;
-        layoutInfo.pBindings                       = &uboLayoutBinding;
+        layoutInfo.bindingCount                    = static_cast<uint32_t>(bindings.size());
+        layoutInfo.pBindings                       = bindings.data();
 
         if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout))
         {
@@ -1571,14 +1598,17 @@ private:
     /// @brief 创建描述符池，描述符集需要通过描述符池来创建
     void CreateDescriptorPool()
     {
-        VkDescriptorPoolSize poolSize {};
-        poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        std::array<VkDescriptorPoolSize, 2> poolSizes {};
+
+        poolSizes.at(0).type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSizes.at(0).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes.at(1).type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes.at(1).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
         VkDescriptorPoolCreateInfo poolInfo {};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes    = &poolSize;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes    = poolSizes.data();
         poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT); // 指定可以分配的最大描述符集个数
         poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
 
@@ -1601,6 +1631,7 @@ private:
         allocInfo.pSetLayouts        = layouts.data();
 
         // 描述符集对象会在描述符池对象清除时自动被清除
+        // 在这里给每一个交换链图像使用相同的描述符布局创建对应的描述符集
         m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
         if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()))
         {
@@ -1614,19 +1645,278 @@ private:
             bufferInfo.offset = 0;
             bufferInfo.range  = sizeof(UniformBufferObject);
 
-            VkWriteDescriptorSet descriptorWrite {};
-            descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
-            descriptorWrite.dstBinding       = 0;                      // 指定缓冲绑定
-            descriptorWrite.dstArrayElement  = 0;                      // 描述符数组的第一个元素的索引（没有数组就使用0）
-            descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrite.descriptorCount  = 1;
-            descriptorWrite.pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
-            descriptorWrite.pImageInfo       = nullptr;     // 指定描述符引用的图像数据
-            descriptorWrite.pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
+            VkDescriptorImageInfo imageInfo {};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView   = m_textureImageView;
+            imageInfo.sampler     = m_textureSampler;
+
+            std::array<VkWriteDescriptorSet, 2> descriptorWrites {};
+
+            // mvp变换矩阵
+            descriptorWrites.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites.at(0).dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
+            descriptorWrites.at(0).dstBinding       = 0;                      // 指定缓冲绑定
+            descriptorWrites.at(0).dstArrayElement  = 0; // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrites.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrites.at(0).descriptorCount  = 1;
+            descriptorWrites.at(0).pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
+            descriptorWrites.at(0).pImageInfo       = nullptr;     // 指定描述符引用的图像数据
+            descriptorWrites.at(0).pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
+
+            // 纹理采样器
+            descriptorWrites.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites.at(1).dstSet           = m_descriptorSets.at(i);
+            descriptorWrites.at(1).dstBinding       = 1;
+            descriptorWrites.at(1).dstArrayElement  = 0;
+            descriptorWrites.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites.at(1).descriptorCount  = 1;
+            descriptorWrites.at(1).pBufferInfo      = nullptr;
+            descriptorWrites.at(1).pImageInfo       = &imageInfo;
+            descriptorWrites.at(1).pTexelBufferView = nullptr;
 
             // 更新描述符的配置
-            vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+        }
+    }
+
+    void CreateTextureImage()
+    {
+        // STBI_rgb_alpha 强制使用alpha通道，如果没有会被添加一个默认的alpha值，texChannels返回图像实际的通道数
+        int texWidth { 0 }, texHeight { 0 }, texChannels { 0 };
+        auto pixels = stbi_load("../resources/textures/alpha.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        std::cout << "image extent: " << texWidth << '\t' << texHeight << '\t' << texChannels << '\n';
+        if (!pixels)
+        {
+            throw std::runtime_error("failed to load texture image");
+        }
+
+        VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+        VkBuffer stagingBuffer {};
+        VkDeviceMemory stagingBufferMemory {};
+
+        CreateBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data { nullptr };
+        vkMapMemory(m_device, stagingBufferMemory, 0, imageSize, 0, &data);
+        std::memcpy(data, pixels, static_cast<size_t>(imageSize));
+        vkUnmapMemory(m_device, stagingBufferMemory);
+
+        stbi_image_free(pixels);
+
+        CreateImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_textureImage, m_textureImageMemory);
+
+        // 图像布局的适用场合：
+        // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR 适合呈现操作
+        // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL 适合作为颜色附着，在片段着色器中写入颜色数据
+        // VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL 适合作为传输数据的来源，比如 vkCmdCopyImageToBuffer
+        // VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL 适合作为传输操作的目的位置，比如 vkCmdCopyBufferToImage
+        // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL 适合在着色器中进行采样操作
+
+        // 变换纹理图像到 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+        // 旧布局设置为 VK_IMAGE_LAYOUT_UNDEFINED ，因为不需要读取复制之前的图像内容
+        TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        // 执行图像数据复制操作
+        CopyBufferToImage(stagingBuffer, m_textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+        // 将图像转换为能够在着色器中采样的纹理数据图像
+        TransitionImageLayout(
+            m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+    }
+
+    /// @brief 创建指定格式的图像对象
+    /// @param width
+    /// @param height
+    /// @param format
+    /// @param tiling
+    /// @param usage
+    /// @param properties
+    /// @param image
+    /// @param imageMemory
+    void CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+        VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
+
+    {
+        // tiling成员变量可以是 VK_IMAGE_TILING_LINEAR 纹素以行主序的方式排列，可以直接访问图像
+        //                     VK_IMAGE_TILING_OPTIMAL 纹素以一种对访问优化的方式排列
+        // initialLayout成员变量可以是 VK_IMAGE_LAYOUT_UNDEFINED GPU不可用，纹素在第一次变换会被丢弃
+        //                            VK_IMAGE_LAYOUT_PREINITIALIZED GPU不可用，纹素在第一次变换会被保留
+        VkImageCreateInfo imageInfo {};
+        imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width  = static_cast<uint32_t>(width);
+        imageInfo.extent.height = static_cast<uint32_t>(height);
+        imageInfo.extent.depth  = 1;
+        imageInfo.mipLevels     = 1;
+        imageInfo.arrayLayers   = 1;
+        imageInfo.format        = format;
+        imageInfo.tiling        = tiling;                    // 设置之后不可修改
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 图像数据是接收方，不需要保留第一次变换时的纹理数据
+        imageInfo.usage         = usage;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // 只被一个队列族使用（支持传输操作的队列族），所以使用独占模式
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;         // 设置多重采样，只对用作附着的图像对象有效
+        imageInfo.flags   = 0; // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
+
+        if (VK_SUCCESS != vkCreateImage(m_device, &imageInfo, nullptr, &m_textureImage))
+        {
+            throw std::runtime_error("failed to create image");
+        }
+
+        VkMemoryRequirements memRequirements {};
+        vkGetImageMemoryRequirements(m_device, image, &memRequirements);
+
+        VkMemoryAllocateInfo allocInfo {};
+        allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize  = memRequirements.size;
+        allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (VK_SUCCESS != vkAllocateMemory(m_device, &allocInfo, nullptr, &imageMemory))
+        {
+            throw std::runtime_error("failed to allocate image memory");
+        }
+        vkBindImageMemory(m_device, image, imageMemory, 0);
+    }
+
+    /// @brief 图像布局变换
+    /// @param image
+    /// @param format
+    /// @param oldLayout
+    /// @param newLayout
+    void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+    {
+        VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
+
+        VkImageMemoryBarrier barrier {};
+        barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout                       = oldLayout;
+        barrier.newLayout                       = newLayout;
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 如果不进行队列所有权传输，必须这样设置
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 同上
+        barrier.image                           = image;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 设置布局变换影响的范围
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 1;
+        barrier.srcAccessMask                   = 0;
+        barrier.dstAccessMask                   = 0;
+
+        // 指定变换屏障掩码
+        VkPipelineStageFlags sourceStage {};
+        VkPipelineStageFlags destinationStage {};
+        if (VK_IMAGE_LAYOUT_UNDEFINED == oldLayout && VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL == newLayout)
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            sourceStage      = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT; // 这是一个伪阶段
+        }
+        else if (VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL == oldLayout && VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL == newLayout)
+        {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage      = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        else
+        {
+            throw std::invalid_argument("unsupported layout transition");
+        }
+
+        // (pipeline barrier)管线屏障主要被用来同步资源访问，比如保证图像在被读取之前数据被写入，也可以被用来变换图像布局，
+        // 如果队列的所有模式为 VK_SHARING_MODE_EXCLUSIVE 还可以被用来传递队列所有权
+        // (image memory barrier)图像内存屏障可以对图像布局进行变换
+        // (buffer memory barrier)缓冲对象也有实现同样效果的缓冲内存屏障
+        // 1.指定发生在屏障之前的管线阶段
+        // 2.指定发生在屏障之后的管线阶段
+        // 6.用于引用3种可用的管线屏障数组（内存、缓冲、图像）
+        vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        EndSingleTimeCommands(commandBuffer);
+    }
+
+    void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t widht, uint32_t height)
+    {
+        VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
+
+        // 用于指定将数据复制到图像的哪一部分
+        VkBufferImageCopy region {};
+        region.bufferOffset      = 0; // 要复制的数据在缓冲中的偏移位置
+        region.bufferRowLength   = 0; // 数据在内存中的存放方式，这两个成员（和bufferImageHeight）
+        region.bufferImageHeight = 0; // 可以对每行图像数据使用额外的空间进行对齐，设置为0数据将会在内存中紧凑存放
+        region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel       = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount     = 1;
+        region.imageOffset                     = { 0, 0, 0 };
+        region.imageExtent                     = { widht, height, 1 };
+
+        // 4.指定目的图像当前使用的图像布局
+        // 最后一个参数为数组时可以一次从一个缓冲复制数据到多个不同的图像对象
+        vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        EndSingleTimeCommands(commandBuffer);
+    }
+
+    void CreateTextureImageView()
+    {
+        m_textureImageView = CreateImageView(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    }
+
+    VkImageView CreateImageView(VkImage image, VkFormat format)
+    {
+        VkImageViewCreateInfo viewInfo {};
+        viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image                           = image;
+        viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format                          = format;
+        viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel   = 0;
+        viewInfo.subresourceRange.levelCount     = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount     = 1;
+
+        VkImageView imageView {};
+        if (VK_SUCCESS != vkCreateImageView(m_device, &viewInfo, nullptr, &imageView))
+        {
+            throw std::runtime_error("failed to create texture image view");
+        }
+
+        return imageView;
+    }
+
+    void CreateTextureSampler()
+    {
+        VkPhysicalDeviceProperties properties {};
+        vkGetPhysicalDeviceProperties(m_physicalDevice, &properties);
+
+        VkSamplerCreateInfo samplerInfo {};
+        samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter    = VK_FILTER_LINEAR;               // 指定纹理放大时使用的插值方法
+        samplerInfo.minFilter    = VK_FILTER_LINEAR;               // 指定纹理缩小时使用的插值方法
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // 指定寻址模式
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        // samplerInfo.anisotropyEnable = VK_TRUE; // 使用各向异性过滤（需要检查是否支持）
+        // samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+        samplerInfo.anisotropyEnable        = VK_FALSE;                         // 不使用各向异性过滤
+        samplerInfo.maxAnisotropy           = 1.0;
+        samplerInfo.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK; // 使用BORDER超出范围时边界颜色
+        samplerInfo.unnormalizedCoordinates = VK_FALSE;                         // 坐标系统，false为[0,1] true为[0,w]和[0,h]
+        samplerInfo.compareEnable           = VK_FALSE;                         // 将样本和一个设定的值比较，阴影贴图会用到
+        samplerInfo.compareOp               = VK_COMPARE_OP_ALWAYS;
+        samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;    // 设置分级细化，可以看作是过滤操作的一种
+        samplerInfo.mipLodBias              = 0.f;
+        samplerInfo.minLod                  = 0.f;
+        samplerInfo.maxLod                  = 0.f;
+
+        if (VK_SUCCESS != vkCreateSampler(m_device, &samplerInfo, nullptr, &m_textureSampler))
+        {
+            throw std::runtime_error("failed to create texture sampler");
         }
     }
 
@@ -1743,6 +2033,10 @@ private:
     std::vector<void*> m_uniformBuffersMapped {};
     VkDescriptorPool m_descriptorPool { nullptr };
     std::vector<VkDescriptorSet> m_descriptorSets {};
+    VkImage m_textureImage { nullptr };
+    VkDeviceMemory m_textureImageMemory { nullptr };
+    VkImageView m_textureImageView { nullptr };
+    VkSampler m_textureSampler { nullptr };
 };
 
 int main()
