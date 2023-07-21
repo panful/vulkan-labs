@@ -1531,15 +1531,20 @@ private:
     /// @details 描述符池对象必须包含描述符集信息才可以分配对应的描述集
     void CreateDescriptorSetLayout()
     {
+        // 以下三个值(N)共同指定了描述符的绑定点
+        // VkWriteDescriptorSet.dstBinding = N;
+        // VkDescriptorSetLayoutBinding.binding = N;
+        // Shader::layout(binding = N) uniform
+
         VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-        uboLayoutBinding.binding                      = 0;
+        uboLayoutBinding.binding                      = 9;
         uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboLayoutBinding.descriptorCount              = 1;                          // uniform 缓冲对象数组的大小
         uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT; // 指定在哪一个着色器阶段使用
         uboLayoutBinding.pImmutableSamplers           = nullptr;                    // 指定图像采样相关的属性
 
         VkDescriptorSetLayoutBinding samplerLayoutBinding {};
-        samplerLayoutBinding.binding            = 1;
+        samplerLayoutBinding.binding            = 6;
         samplerLayoutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerLayoutBinding.descriptorCount    = 1;
         samplerLayoutBinding.pImmutableSamplers = nullptr;
@@ -1655,7 +1660,7 @@ private:
             // mvp变换矩阵
             descriptorWrites.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites.at(0).dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
-            descriptorWrites.at(0).dstBinding       = 0;                      // 指定缓冲绑定
+            descriptorWrites.at(0).dstBinding       = 9;                      // 指定缓冲绑定
             descriptorWrites.at(0).dstArrayElement  = 0; // 描述符数组的第一个元素的索引（没有数组就使用0）
             descriptorWrites.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptorWrites.at(0).descriptorCount  = 1;
@@ -1666,7 +1671,7 @@ private:
             // 纹理采样器
             descriptorWrites.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites.at(1).dstSet           = m_descriptorSets.at(i);
-            descriptorWrites.at(1).dstBinding       = 1;
+            descriptorWrites.at(1).dstBinding       = 6;
             descriptorWrites.at(1).dstArrayElement  = 0;
             descriptorWrites.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrites.at(1).descriptorCount  = 1;
