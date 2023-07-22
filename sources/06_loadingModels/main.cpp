@@ -20,9 +20,14 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // 透视矩阵深度值范围 [-1, 1] => [0, 1]
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 
 #include <algorithm>
 #include <array>
@@ -31,6 +36,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 // 窗口默认大小
@@ -57,6 +63,11 @@ struct Vertex
     glm::vec3 pos { 0.f, 0.f, 0.f };
     glm::vec3 color { 0.f, 0.f, 0.f };
     glm::vec2 texCoord { 0.f, 0.f };
+
+    bool operator==(const Vertex& other) const
+    {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+    }
 
     static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept
     {
@@ -92,6 +103,17 @@ struct Vertex
     }
 };
 
+namespace std {
+template <>
+struct hash<Vertex>
+{
+    size_t operator()(Vertex const& vertex) const
+    {
+        return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
+    }
+};
+} // namespace std
+
 struct UniformBufferObject
 {
     glm::mat4 model { glm::mat4(1.f) };
@@ -118,27 +140,6 @@ struct SwapChainSupportDetails
     std::vector<VkSurfaceFormatKHR> foramts;
     std::vector<VkPresentModeKHR> presentModes;
 };
-
-// clang-format off
-// Z指向屏幕里面，Z越大距离相机越远
-const std::vector<Vertex> vertices  {
-    { {-0.8f, -0.5f, 0.0f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
-    { {-0.8f,  0.5f, 0.0f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
-    { { 0.2f,  0.5f, 0.0f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
-    { { 0.2f, -0.5f, 0.0f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
-
-    { {-0.2f, -0.5f, 0.1f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
-    { {-0.2f,  0.5f, 0.1f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
-    { { 0.8f,  0.5f, 0.1f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
-    { { 0.8f, -0.5f, 0.1f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
-};
-
-const std::vector<uint16_t> indices{
-    0, 1, 2, 0, 2, 3,
-    4, 5, 6, 4, 6, 7,
-};
-
-// clang-format on
 
 class HelloTriangleApplication
 {
@@ -186,6 +187,7 @@ private:
         CreateTextureImage();
         CreateTextureImageView();
         CreateTextureSampler();
+        LoadModel();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -878,7 +880,7 @@ private:
         rasterizer.rasterizerDiscardEnable                = VK_FALSE; // 设置为true会禁止一切片段输出到帧缓冲
         rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth                              = 1.f;
-        rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;           // 表面剔除类型，正面、背面、双面剔除
+        rasterizer.cullMode                               = VK_CULL_MODE_NONE;           // 表面剔除类型，正面、背面、双面剔除
         rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
         rasterizer.depthBiasEnable                        = VK_FALSE;
         rasterizer.depthBiasConstantFactor                = 1.f;
@@ -1189,7 +1191,7 @@ private:
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         // 绑定索引缓冲
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         // 为每个交换链图像绑定对应的描述符集
         // 2.指定绑定的是图形管线还是计算管线，因为描述符集并不是图形管线所独有的
@@ -1207,7 +1209,7 @@ private:
         // 4.用于定义着色器变量 gl_VertexIndex 的值
         // 5.用于定义着色器变量 gl_InstanceIndex 的值
         // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_indices.size()), 1, 0, 0, 0);
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
@@ -1393,7 +1395,7 @@ private:
     /// @brief 创建顶点缓冲
     void CreateVertexBuffer()
     {
-        VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+        VkDeviceSize bufferSize = sizeof(Vertex) * m_vertices.size();
 
         // 为了提升性能，使用一个临时（暂存）缓冲，先将顶点数据加载到临时缓冲，再复制到顶点缓冲
         VkBuffer stagingBuffer {};
@@ -1409,7 +1411,7 @@ private:
         // 将缓冲关联的内存映射到CPU可以访问的内存
         vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
         // 将顶点数据复制到映射后的内存
-        std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
+        std::memcpy(data, m_vertices.data(), static_cast<size_t>(bufferSize));
         // 结束内存映射
         vkUnmapMemory(m_device, stagingBufferMemory);
 
@@ -1435,7 +1437,7 @@ private:
     /// @brief 创建索引缓冲
     void CreateIndexBuffer()
     {
-        VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
+        VkDeviceSize bufferSize = sizeof(m_indices.front()) * m_indices.size();
 
         VkBuffer stagingBuffer {};
         VkDeviceMemory stagingBufferMemory {};
@@ -1445,7 +1447,7 @@ private:
 
         void* data { nullptr };
         vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
+        std::memcpy(data, m_indices.data(), static_cast<size_t>(bufferSize));
         vkUnmapMemory(m_device, stagingBufferMemory);
 
         CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1638,8 +1640,8 @@ private:
         auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
 
         UniformBufferObject ubo {};
-        ubo.model = glm::mat4(1.f);
-        ubo.view  = glm::lookAt(glm::vec3(0.f, 0.f, -2.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
+        ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(45.f), glm::vec3(1.f, 1.f, 0.f));
+        ubo.view  = glm::lookAt(glm::vec3(2.f, 2.f, 2.f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
         ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
 
         // glm的裁剪坐标的Y轴和 Vulkan 是相反的
@@ -1737,7 +1739,7 @@ private:
     {
         // STBI_rgb_alpha 强制使用alpha通道，如果没有会被添加一个默认的alpha值，texChannels返回图像实际的通道数
         int texWidth { 0 }, texHeight { 0 }, texChannels { 0 };
-        auto pixels = stbi_load("../resources/textures/alpha.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        auto pixels = stbi_load("../resources/textures/viking_room.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         std::cout << "image extent: " << texWidth << '\t' << texHeight << '\t' << texChannels << '\n';
         if (!pixels)
         {
@@ -2024,6 +2026,46 @@ private:
             VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
     }
 
+    void LoadModel()
+    {
+        tinyobj::attrib_t attrib {};
+        std::vector<tinyobj::shape_t> shapes {};
+        std::vector<tinyobj::material_t> materials {};
+        std::string warn {}, err {};
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../resources/models/viking_room.obj"))
+        {
+            throw std::runtime_error(warn + err);
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices {};
+
+        for (const auto& shape : shapes)
+        {
+            for (const auto& index : shape.mesh.indices)
+            {
+                Vertex vertex {};
+
+                vertex.pos = { attrib.vertices[3 * index.vertex_index + 0], attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2] };
+
+                vertex.texCoord = { attrib.texcoords[2 * index.texcoord_index + 0], 1.0f - attrib.texcoords[2 * index.texcoord_index + 1] };
+
+                vertex.color = { 1.0f, 1.0f, 1.0f };
+
+                if (uniqueVertices.count(vertex) == 0)
+                {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(m_vertices.size());
+                    m_vertices.push_back(vertex);
+                }
+
+                m_indices.push_back(uniqueVertices[vertex]);
+            }
+        }
+
+        std::cout << "vertices size: " << m_vertices.size() << "\tindices size: " << m_indices.size() << '\n';
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -2144,6 +2186,8 @@ private:
     VkImage m_depthImage { nullptr };
     VkDeviceMemory m_depthImageMemory { nullptr };
     VkImageView m_depthImageView { nullptr };
+    std::vector<Vertex> m_vertices {};
+    std::vector<uint32_t> m_indices {};
 };
 
 int main()
