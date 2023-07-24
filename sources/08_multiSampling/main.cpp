@@ -538,6 +538,7 @@ private:
         // 指定应用程序使用的设备特性（例如几何着色器）
         VkPhysicalDeviceFeatures deviceFeatures = {};
         deviceFeatures.samplerAnisotropy        = VK_TRUE;
+        deviceFeatures.sampleRateShading        = VK_TRUE; // 着色采样（会对图元内部进行多采样，不止图元边缘）
 
         VkDeviceCreateInfo createInfo      = {};
         createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -892,9 +893,9 @@ private:
         // 多重采样
         VkPipelineMultisampleStateCreateInfo multisampling = {};
         multisampling.sType                                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.sampleShadingEnable                  = VK_FALSE;
+        multisampling.sampleShadingEnable                  = VK_TRUE; // 采样着色
         multisampling.rasterizationSamples                 = m_msaaSamples;
-        multisampling.minSampleShading                     = 1.f;
+        multisampling.minSampleShading                     = .2f;
         multisampling.pSampleMask                          = nullptr;
         multisampling.alphaToCoverageEnable                = VK_FALSE;
         multisampling.alphaToOneEnable                     = VK_FALSE;
