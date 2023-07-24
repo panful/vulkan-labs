@@ -182,6 +182,7 @@ private:
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateCommandPool();
+        CreateColorResources();
         CreateDepthResources();
         CreateFramebuffers();
         CreateTextureImage();
@@ -430,6 +431,7 @@ private:
             if (IsDeviceSuitable(device))
             {
                 m_physicalDevice = device;
+                m_msaaSamples    = GetMaxUsableSampleCount();
                 break;
             }
         }
@@ -891,7 +893,7 @@ private:
         VkPipelineMultisampleStateCreateInfo multisampling = {};
         multisampling.sType                                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisampling.sampleShadingEnable                  = VK_FALSE;
-        multisampling.rasterizationSamples                 = VK_SAMPLE_COUNT_1_BIT;
+        multisampling.rasterizationSamples                 = m_msaaSamples;
         multisampling.minSampleShading                     = 1.f;
         multisampling.pSampleMask                          = nullptr;
         multisampling.alphaToCoverageEnable                = VK_FALSE;
@@ -1002,23 +1004,34 @@ private:
         // 附着描述
         VkAttachmentDescription colorAttachment = {};
         colorAttachment.format                  = m_swapChainImageFormat;       // 颜色缓冲附着的格式
-        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;        // 采样数
+        colorAttachment.samples                 = m_msaaSamples;                // 采样数
         colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;  // 渲染之前对附着中的数据（颜色和深度）进行操作
         colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE; // 渲染之后对附着中的数据（颜色和深度）进行操作
         colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // 渲染之前对模板缓冲的操作
         colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 渲染之后对模板缓冲的操作
         colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;        // 渲染流程开始前的图像布局方式
-        colorAttachment.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;  // 渲染流程结束后的图像布局方式
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // 渲染流程结束后的图像布局方式，多重采样不需要呈现
 
         VkAttachmentDescription depthAttachment = {};
         depthAttachment.format                  = FindDepthFormat();
-        depthAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.samples                 = m_msaaSamples;
         depthAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
         depthAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 绘制结束后不需要从深度缓冲复制深度数据
         depthAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         depthAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED; // 不需要读取之前深度图像数据
         depthAttachment.finalLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        // 用于转换多重采样缓冲数据
+        VkAttachmentDescription colorAttachmentResolve = {};
+        colorAttachmentResolve.format                  = m_swapChainImageFormat;
+        colorAttachmentResolve.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        colorAttachmentResolve.loadOp                  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachmentResolve.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachmentResolve.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachmentResolve.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachmentResolve.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachmentResolve.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         // 子流程引用的附着
         VkAttachmentReference colorAttachmentRef = {};
@@ -1029,12 +1042,17 @@ private:
         depthAttachmentRef.attachment            = 1;
         depthAttachmentRef.layout                = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+        VkAttachmentReference colorAttachmentResolveRef = {};
+        colorAttachmentResolveRef.attachment            = 2;
+        colorAttachmentResolveRef.layout                = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
         // 子流程
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
         subpass.colorAttachmentCount = 1;                               // 颜色附着个数
         subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
         subpass.pDepthStencilAttachment = &depthAttachmentRef; // 指定深度模板附着，深度模板附着只能是一个，所以不用设置数量
+        subpass.pResolveAttachments = &colorAttachmentResolveRef;
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
@@ -1046,7 +1064,8 @@ private:
         dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        std::array<VkAttachmentDescription, 2> attachments { colorAttachment, depthAttachment };
+        // 渲染流程结构体信息
+        std::array<VkAttachmentDescription, 3> attachments { colorAttachment, depthAttachment, colorAttachmentResolve };
 
         VkRenderPassCreateInfo renderPassInfo = {};
         renderPassInfo.sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -1072,7 +1091,7 @@ private:
         {
             // 颜色附着和深度（模板）附着
             // 和每个交换链图像对应不同的颜色附着不同，因为信号量的原因，只有一个subpass同时执行，所以一个深度附着即可
-            std::array<VkImageView, 2> attachments { m_swapChainImageViews.at(i), m_depthImageView };
+            std::array<VkImageView, 3> attachments { m_colorImageView, m_depthImageView, m_swapChainImageViews.at(i) }; // 注意顺序
 
             VkFramebufferCreateInfo framebufferInfo = {};
             framebufferInfo.sType                   = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1350,6 +1369,7 @@ private:
         // 可以通过动态状态来设置视口和裁剪矩形来避免重建管线
         CreateSwapChain();
         CreateImageViews();
+        CreateColorResources();
         CreateDepthResources(); // 窗口大小改变后重新创建深度图像资源
         CreateFramebuffers();
     }
@@ -1357,6 +1377,10 @@ private:
     /// @brief 清除交换链相关对象
     void CleanupSwapChain() noexcept
     {
+        vkDestroyImageView(m_device, m_colorImageView, nullptr);
+        vkDestroyImage(m_device, m_colorImage, nullptr);
+        vkFreeMemory(m_device, m_colorImageMemory, nullptr);
+
         // 窗口大小变化时需要对深度缓冲进行处理，让深度缓冲的大小和新的窗口大小匹配
         vkDestroyImageView(m_device, m_depthImageView, nullptr);
         vkDestroyImage(m_device, m_depthImage, nullptr);
@@ -1765,7 +1789,7 @@ private:
 
         stbi_image_free(pixels);
 
-        CreateImage(texWidth, texHeight, m_mipLevels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+        CreateImage(texWidth, texHeight, m_mipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_textureImage, m_textureImageMemory);
 
@@ -1800,8 +1824,8 @@ private:
     /// @param properties
     /// @param image
     /// @param imageMemory
-    void CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-        VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
+    void CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling,
+        VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
 
     {
         // tiling成员变量可以是 VK_IMAGE_TILING_LINEAR 纹素以行主序的方式排列，可以直接访问图像
@@ -1821,7 +1845,7 @@ private:
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 图像数据是接收方，不需要保留第一次变换时的纹理数据
         imageInfo.usage         = usage;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // 只被一个队列族使用（支持传输操作的队列族），所以使用独占模式
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;         // 设置多重采样，只对用作附着的图像对象有效
+        imageInfo.samples = numSamples;                    // 设置多重采样，只对用作附着的图像对象有效
         imageInfo.flags   = 0; // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
 
         if (VK_SUCCESS != vkCreateImage(m_device, &imageInfo, nullptr, &image))
@@ -1989,7 +2013,7 @@ private:
     {
         auto depthFormat = FindDepthFormat();
 
-        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, 1, depthFormat, VK_IMAGE_TILING_OPTIMAL,
+        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, 1, m_msaaSamples, depthFormat, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_depthImage, m_depthImageMemory);
 
         m_depthImageView = CreateImageView(m_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
@@ -2078,7 +2102,7 @@ private:
     /// @param texWidth
     /// @param texHeight
     /// @param mipLevels
-    void GenerateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
+    void GenerateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) const
     {
         VkFormatProperties formatProperties {};
         vkGetPhysicalDeviceFormatProperties(m_physicalDevice, imageFormat, &formatProperties);
@@ -2168,6 +2192,37 @@ private:
             commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         EndSingleTimeCommands(commandBuffer);
+    }
+
+    /// @brief 查询最大可用采样数
+    /// @return
+    VkSampleCountFlagBits GetMaxUsableSampleCount() const noexcept
+    {
+        VkPhysicalDeviceProperties physicalDeviceProperties {};
+        vkGetPhysicalDeviceProperties(m_physicalDevice, &physicalDeviceProperties);
+
+        VkSampleCountFlags counts
+            = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+
+        return counts & VK_SAMPLE_COUNT_64_BIT ? VK_SAMPLE_COUNT_64_BIT
+            : counts & VK_SAMPLE_COUNT_32_BIT  ? VK_SAMPLE_COUNT_32_BIT
+            : counts & VK_SAMPLE_COUNT_16_BIT  ? VK_SAMPLE_COUNT_16_BIT
+            : counts & VK_SAMPLE_COUNT_8_BIT   ? VK_SAMPLE_COUNT_8_BIT
+            : counts & VK_SAMPLE_COUNT_4_BIT   ? VK_SAMPLE_COUNT_4_BIT
+            : counts & VK_SAMPLE_COUNT_2_BIT   ? VK_SAMPLE_COUNT_2_BIT
+                                               : VK_SAMPLE_COUNT_1_BIT;
+    }
+
+    void CreateColorResources()
+    {
+        VkFormat colorFormat = m_swapChainImageFormat;
+
+        // 多重采样细化级别设置为1，采样个数大于1的图像只能使用1个细化级别
+        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, 1, m_msaaSamples, colorFormat, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_colorImage,
+            m_colorImageMemory);
+
+        m_colorImageView = CreateImageView(m_colorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
     }
 
 private:
@@ -2293,6 +2348,10 @@ private:
     VkImageView m_depthImageView { nullptr };
     std::vector<Vertex> m_vertices {};
     std::vector<uint32_t> m_indices {};
+    VkSampleCountFlagBits m_msaaSamples { VK_SAMPLE_COUNT_1_BIT };
+    VkImage m_colorImage { nullptr };
+    VkDeviceMemory m_colorImageMemory { nullptr };
+    VkImageView m_colorImageView { nullptr };
 };
 
 int main()
