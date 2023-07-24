@@ -807,7 +807,7 @@ private:
 
         for (size_t i = 0; i < m_swapChainImages.size(); ++i)
         {
-            m_swapChainImageViews.at(i) = CreateImageView(m_swapChainImages.at(i), m_swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+            m_swapChainImageViews.at(i) = CreateImageView(m_swapChainImages.at(i), m_swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
         }
     }
 
@@ -880,7 +880,7 @@ private:
         rasterizer.rasterizerDiscardEnable                = VK_FALSE; // 设置为true会禁止一切片段输出到帧缓冲
         rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth                              = 1.f;
-        rasterizer.cullMode                               = VK_CULL_MODE_NONE;           // 表面剔除类型，正面、背面、双面剔除
+        rasterizer.cullMode                               = VK_CULL_MODE_NONE;               // 表面剔除类型，正面、背面、双面剔除
         rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
         rasterizer.depthBiasEnable                        = VK_FALSE;
         rasterizer.depthBiasConstantFactor                = 1.f;
@@ -1640,7 +1640,7 @@ private:
         auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
 
         UniformBufferObject ubo {};
-        ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(45.f), glm::vec3(1.f, 1.f, 0.f));
+        ubo.model = glm::mat4(1.f);
         ubo.view  = glm::lookAt(glm::vec3(2.f, 2.f, 2.f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
         ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
 
@@ -1746,6 +1746,10 @@ private:
             throw std::runtime_error("failed to load texture image");
         }
 
+        // 细化贴图每一张图像的大小通常是上一张图像的一半
+        m_mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+        std::cout << "mip levels: " << m_mipLevels << '\n';
+
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         VkBuffer stagingBuffer {};
@@ -1761,8 +1765,9 @@ private:
 
         stbi_image_free(pixels);
 
-        CreateImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_textureImage, m_textureImageMemory);
+        CreateImage(texWidth, texHeight, m_mipLevels, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_textureImage, m_textureImageMemory);
 
         // 图像布局的适用场合：
         // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR 适合呈现操作
@@ -1773,15 +1778,17 @@ private:
 
         // 变换纹理图像到 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
         // 旧布局设置为 VK_IMAGE_LAYOUT_UNDEFINED ，因为不需要读取复制之前的图像内容
-        TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, m_mipLevels);
         // 执行图像数据复制操作
         CopyBufferToImage(stagingBuffer, m_textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
         // 将图像转换为能够在着色器中采样的纹理数据图像
-        TransitionImageLayout(
-            m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // TransitionImageLayout(
+        //    m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,m_mipLevels);
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+
+        GenerateMipmaps(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, m_mipLevels);
     }
 
     /// @brief 创建指定格式的图像对象
@@ -1793,7 +1800,7 @@ private:
     /// @param properties
     /// @param image
     /// @param imageMemory
-    void CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+    void CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
         VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
 
     {
@@ -1807,7 +1814,7 @@ private:
         imageInfo.extent.width  = static_cast<uint32_t>(width);
         imageInfo.extent.height = static_cast<uint32_t>(height);
         imageInfo.extent.depth  = 1;
-        imageInfo.mipLevels     = 1;
+        imageInfo.mipLevels     = mipLevels;
         imageInfo.arrayLayers   = 1;
         imageInfo.format        = format;
         imageInfo.tiling        = tiling;                    // 设置之后不可修改
@@ -1842,7 +1849,7 @@ private:
     /// @param format
     /// @param oldLayout
     /// @param newLayout
-    void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) const
+    void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels) const
     {
         VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
 
@@ -1855,7 +1862,7 @@ private:
         barrier.image                           = image;
         barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 设置布局变换影响的范围
         barrier.subresourceRange.baseMipLevel   = 0;
-        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.levelCount     = mipLevels;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount     = 1;
         barrier.srcAccessMask                   = 0;
@@ -1889,9 +1896,10 @@ private:
         // 如果队列的所有模式为 VK_SHARING_MODE_EXCLUSIVE 还可以被用来传递队列所有权
         // (image memory barrier)图像内存屏障可以对图像布局进行变换
         // (buffer memory barrier)缓冲对象也有实现同样效果的缓冲内存屏障
-        // 1.指定发生在屏障之前的管线阶段
-        // 2.指定发生在屏障之后的管线阶段
-        // 6.用于引用3种可用的管线屏障数组（内存、缓冲、图像）
+        // 2.指定发生在屏障之前的管线阶段
+        // 3.指定发生在屏障之后的管线阶段
+        // 4.设置为0或 VK_DEPENDENCY_BY_REGION_BIT，后者屏障就变成了一个区域条件
+        // 最后6个参数用于引用3种可用的管线屏障数组（内存、缓冲、图像）
         vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
         EndSingleTimeCommands(commandBuffer);
     }
@@ -1920,10 +1928,10 @@ private:
 
     void CreateTextureImageView()
     {
-        m_textureImageView = CreateImageView(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+        m_textureImageView = CreateImageView(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, m_mipLevels);
     }
 
-    VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+    VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels)
     {
         VkImageViewCreateInfo viewInfo {};
         viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1932,7 +1940,7 @@ private:
         viewInfo.format                          = format;
         viewInfo.subresourceRange.aspectMask     = aspectFlags;
         viewInfo.subresourceRange.baseMipLevel   = 0;
-        viewInfo.subresourceRange.levelCount     = 1;
+        viewInfo.subresourceRange.levelCount     = mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount     = 1;
 
@@ -1957,7 +1965,7 @@ private:
         samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // 指定寻址模式
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        // samplerInfo.anisotropyEnable = VK_TRUE; // 使用各向异性过滤（需要检查是否支持）
+        // samplerInfo.anisotropyEnable = VK_TRUE;                              // 使用各向异性过滤（需要检查是否支持）
         // samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
         samplerInfo.anisotropyEnable        = VK_FALSE;                         // 不使用各向异性过滤
         samplerInfo.maxAnisotropy           = 1.0;
@@ -1967,8 +1975,8 @@ private:
         samplerInfo.compareOp               = VK_COMPARE_OP_ALWAYS;
         samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;    // 设置分级细化，可以看作是过滤操作的一种
         samplerInfo.mipLodBias              = 0.f;
-        samplerInfo.minLod                  = 0.f;
-        samplerInfo.maxLod                  = 0.f;
+        samplerInfo.minLod = 0.f; // static_cast<float>(m_mipLevels / 2); // 不使用较小细化级别的纹理图像（图像看起来会有些模糊）
+        samplerInfo.maxLod = static_cast<float>(m_mipLevels);
 
         if (VK_SUCCESS != vkCreateSampler(m_device, &samplerInfo, nullptr, &m_textureSampler))
         {
@@ -1981,12 +1989,10 @@ private:
     {
         auto depthFormat = FindDepthFormat();
 
-        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL,
+        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, 1, depthFormat, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_depthImage, m_depthImageMemory);
 
-        m_depthImageView = CreateImageView(m_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-        // TransitionImageLayout(m_depthImage, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        m_depthImageView = CreateImageView(m_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
     }
 
     /// @brief 查找一个符合要求又被设备支持的图像数据格式
@@ -2064,6 +2070,104 @@ private:
         }
 
         std::cout << "vertices size: " << m_vertices.size() << "\tindices size: " << m_indices.size() << '\n';
+    }
+
+    /// @brief 生成原始纹理图像的不同细化级别图像
+    /// @param image
+    /// @param imageFormat
+    /// @param texWidth
+    /// @param texHeight
+    /// @param mipLevels
+    void GenerateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
+    {
+        VkFormatProperties formatProperties {};
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, imageFormat, &formatProperties);
+
+        // 是否支持线性过滤特性
+        if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))
+        {
+            throw std::runtime_error("texture image format does not support linear bitting");
+        }
+
+        VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
+
+        VkImageMemoryBarrier barrier            = {};
+        barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.image                           = image;
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 1;
+        barrier.subresourceRange.levelCount     = 1;
+
+        int32_t mipWidth  = texWidth;
+        int32_t mipHeight = texHeight;
+
+        for (uint32_t i = 1; i < mipLevels; ++i)
+        {
+            barrier.subresourceRange.baseMipLevel = i - 1;
+            barrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout                     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask                 = VK_ACCESS_TRANSFER_READ_BIT;
+
+            // 将细化级别为 i-1 的纹理图像变换到 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL 布局
+            // 这一变换会在细化级别为 i-1 的纹理图像数据被写入后进行
+            vkCmdPipelineBarrier(
+                commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            VkImageBlit blit {};
+            blit.srcOffsets[0]                 = { 0, 0, 0 }; // 指定要传输的数据所在的三维图像区域
+            blit.srcOffsets[1]                 = { mipWidth, mipHeight, 1 };
+            blit.srcSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel       = i - 1; // 用来生成细化纹理的细化级别
+            blit.srcSubresource.baseArrayLayer = 0;
+            blit.srcSubresource.layerCount     = 1;
+            blit.dstOffsets[0]                 = { 0, 0, 0 }; // 指定要接收的数据的三维图像区域
+            blit.dstOffsets[1]                 = { mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 };
+            blit.dstSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel       = i; // 生成纹理的细化级别
+            blit.dstSubresource.baseArrayLayer = 0;
+            blit.dstSubresource.layerCount     = 1;
+
+            // 传输操作是在同一纹理对象的不同细化级别间进行，所以源图像和目标图像是同一个
+            // 最后一个参数表示使用线性插值过滤（和VkSampler一样）
+            vkCmdBlitImage(
+                commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            // 将细化级别为 i-1 的图像布局变换到 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL 需要等待当前的传输指令结束才能进行
+            vkCmdPipelineBarrier(
+                commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            // 计算下一次循环要使用的细化级别图像大小
+            if (mipWidth > 1)
+            {
+                mipWidth /= 2;
+            }
+            if (mipHeight > 1)
+            {
+                mipHeight /= 2;
+            }
+        }
+
+        barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+        barrier.oldLayout                     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout                     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask                 = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask                 = VK_ACCESS_SHADER_READ_BIT;
+
+        // 将最后一个细化级别的图像布局从 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL 变换为 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        // 因为最后一个细化级别的图像不会被作为传输指令的数据来源
+        vkCmdPipelineBarrier(
+            commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        EndSingleTimeCommands(commandBuffer);
     }
 
 private:
@@ -2179,6 +2283,7 @@ private:
     std::vector<void*> m_uniformBuffersMapped {};
     VkDescriptorPool m_descriptorPool { nullptr };
     std::vector<VkDescriptorSet> m_descriptorSets {};
+    uint32_t m_mipLevels { 0 };
     VkImage m_textureImage { nullptr };
     VkDeviceMemory m_textureImageMemory { nullptr };
     VkImageView m_textureImageView { nullptr };
