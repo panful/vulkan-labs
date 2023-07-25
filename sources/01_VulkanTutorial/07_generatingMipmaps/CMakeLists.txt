@@ -1,4 +1,4 @@
-set(target_name "06_loadingModels")
+set(target_name "01_07_generatingMipmaps")
 
 add_executable(${target_name} "main.cpp")
 

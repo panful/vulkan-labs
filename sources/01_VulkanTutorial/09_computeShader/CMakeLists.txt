@@ -1,4 +1,4 @@
-set(target_name "09_computeShader")
+set(target_name "01_09_computeShader")
 
 add_executable(${target_name} "main.cpp")
 

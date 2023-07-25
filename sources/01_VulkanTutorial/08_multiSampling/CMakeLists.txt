@@ -1,4 +1,4 @@
-set(target_name "08_multiSamling")
+set(target_name "01_08_multiSamling")
 
 add_executable(${target_name} "main.cpp")
 

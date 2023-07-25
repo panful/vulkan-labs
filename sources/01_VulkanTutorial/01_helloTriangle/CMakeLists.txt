@@ -1,4 +1,4 @@
-set(target_name "01_HelloTriangle")
+set(target_name "01_01_HelloTriangle")
 
 add_executable(${target_name} "main.cpp")
 

@@ -1,4 +1,4 @@
-set(target_name "02_vertexBuffers")
+set(target_name "01_04_textureMapping")
 
 add_executable(${target_name} "main.cpp")
 

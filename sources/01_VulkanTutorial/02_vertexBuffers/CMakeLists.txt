@@ -1,4 +1,4 @@
-set(target_name "03_uniformBuffers")
+set(target_name "01_02_vertexBuffers")
 
 add_executable(${target_name} "main.cpp")
 

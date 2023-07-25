@@ -1,4 +1,4 @@
-set(target_name "07_generatingMipmaps")
+set(target_name "01_03_uniformBuffers")
 
 add_executable(${target_name} "main.cpp")
 

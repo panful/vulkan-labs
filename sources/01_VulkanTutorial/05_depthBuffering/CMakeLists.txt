@@ -1,4 +1,4 @@
-set(target_name "05_depthBuffering")
+set(target_name "01_05_depthBuffering")
 
 add_executable(${target_name} "main.cpp")
 

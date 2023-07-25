@@ -1,4 +1,4 @@
-set(target_name "04_textureMapping")
+set(target_name "01_06_loadingModels")
 
 add_executable(${target_name} "main.cpp")
 
