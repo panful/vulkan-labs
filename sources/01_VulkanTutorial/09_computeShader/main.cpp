@@ -664,8 +664,8 @@ private:
 
     void createGraphicsPipeline()
     {
-        auto vertShaderCode = readFile("../resources/shaders/09_vert.spv");
-        auto fragShaderCode = readFile("../resources/shaders/09_frag.spv");
+        auto vertShaderCode = readFile("../resources/shaders/01_09_vert.spv");
+        auto fragShaderCode = readFile("../resources/shaders/01_09_frag.spv");
 
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -788,7 +788,7 @@ private:
     /// @brief 创建计算管线
     void createComputePipeline()
     {
-        auto computeShaderCode = readFile("../resources/shaders/09_comp.spv");
+        auto computeShaderCode = readFile("../resources/shaders/01_09_comp.spv");
 
         VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
 
