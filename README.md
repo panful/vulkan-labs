@@ -2,8 +2,9 @@
 **Vulkan学习记录**
 ## 一、Vulkan
 [Vulkan 官网](https://www.vulkan.org/)
-[Vulkan 官方教程](https://vulkan-tutorial.com/)
 [Vulkan 规范](https://registry.khronos.org/vulkan/specs/1.2/pdf/vkspec.pdf)
+[Vulkan Tutorial](https://vulkan-tutorial.com/)
+[Vulkan SaschaWillems](https://github.com/SaschaWillems/Vulkan)
 ## 二、Vulkan使用
 ### 1. Windows下使用Vulkan
 [vulkan_sdk for Windows](https://vulkan.lunarg.com/sdk/home#windows)
