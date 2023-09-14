@@ -3,8 +3,10 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <set>
 #include <stdexcept>
