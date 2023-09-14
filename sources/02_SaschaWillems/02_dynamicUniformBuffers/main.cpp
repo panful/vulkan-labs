@@ -1,8 +1,3 @@
-/*
- * VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC 的使用
- * 对不同的图元设置不同的 uniform
- * 比如一次渲染循环需要绘制多个三角形，每个三角形使用不同的颜色
- */
 
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>
@@ -135,7 +130,7 @@ const std::vector<Vertex> vertices {
 const std::vector<Vertex> vertices2 {
     {{ 0.2f,  0.8f}, {1.f, 1.f, 0.f}},
     {{ 0.8f,  0.8f}, {1.f, 1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {1.f, 1.f, 0.f}},
+    {{ 0.8f, -0.5f}, {1.f, 1.f, 0.f}},
 };
 
 const std::vector<uint16_t> indices{

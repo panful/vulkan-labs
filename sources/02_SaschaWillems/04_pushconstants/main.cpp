@@ -1,8 +1,3 @@
-/*
- * 在 VkPipelineLayoutCreateInfo 中添加 push_constant 信息
- * 使用 vkCmdPushConstants 提交 push_constant 数据
- * 不需要创建 descriptor sets ，数据块大小有限制，不能太大
- */
 
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>

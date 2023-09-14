@@ -1,7 +1,3 @@
-/*
- * 绘制多个三角形
- * 创建多个 vertex buffer 和 index buffer，在一次渲染循环中（DrawFrame()）多次调用 vkCmdDraw 或 vkCmdDrawIndexed
- */
 
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>
@@ -100,7 +96,7 @@ const std::vector<Vertex> vertices {
 const std::vector<Vertex> vertices2 {
     {{ 0.2f,  0.8f}, {1.f, 1.f, 0.f}},
     {{ 0.8f,  0.8f}, {1.f, 1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {1.f, 1.f, 0.f}},
+    {{ 0.8f, -0.5f}, {1.f, 1.f, 0.f}},
 };
 
 const std::vector<uint16_t> indices{

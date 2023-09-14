@@ -1,5 +1,3 @@
-// Sample by Sascha Willems
-// Contact: webmaster@saschawillems.de
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

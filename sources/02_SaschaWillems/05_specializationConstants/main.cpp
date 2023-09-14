@@ -1,9 +1,3 @@
-/*
- * 创建多个 pipeline ，每个pipeline设置不同的着色器常量(constant_id)
- * constant_id 可以在着色器编译时就将常量写入，并且不可更改，避免了着色器内部的分支展开
- * 可以优化着色器的代码，运行时性能也更好
- * uber(uniform branch) 使用uniform控制的分支要比constant_id控制慢20%-30%
- */
 
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>

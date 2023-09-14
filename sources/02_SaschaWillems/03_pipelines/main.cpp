@@ -1,6 +1,3 @@
-/*
- * 创建多个 pipeline ，每个pipeline对应不同的绘制模式（点、线、面）多边形模式（填充、线框）
- */
 
 #define GLFW_INCLUDE_VULKAN // 定义这个宏之后 glfw3.h 文件就会包含 Vulkan 的头文件
 #include <GLFW/glfw3.h>
