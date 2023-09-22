@@ -15,8 +15,11 @@ function(BuildTarget path)
             add_executable(${target_name} ${subdir_sources})
 
             # 3rdparty
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/includes)
-            target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/libs/$<IF:$<CONFIG:Debug>,Debug,Release>/${CMAKE_HOST_SYSTEM_NAME})
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/glm/include)
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/include)
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/stb_image)
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/tiny_obj)
+            target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/lib/$<IF:$<CONFIG:Debug>,Debug,Release>/${CMAKE_HOST_SYSTEM_NAME})
 
             # vulkan
             target_include_directories(${target_name} PRIVATE ${Vulkan_INCLUDE_DIR})
