@@ -1,8 +1,8 @@
 #version 450
 
 struct Particle {
-	vec2 position;
-	vec2 velocity;
+    vec2 position;
+    vec2 velocity;
     vec4 color;
 };
 

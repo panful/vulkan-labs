@@ -102,12 +102,11 @@ struct hash<Vertex>
 
 struct VertexQuad
 {
-    glm::vec3 pos { 0.f, 0.f, 0.f };
-    glm::vec2 texCoord { 0.f, 0.f };
+    glm::vec2 pos { 0.f, 0.f };
 
     bool operator==(const VertexQuad& other) const
     {
-        return pos == other.pos && texCoord == other.texCoord;
+        return pos == other.pos;
     }
 
     static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept
@@ -121,21 +120,15 @@ struct VertexQuad
         return bindingDescription;
     }
 
-    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
+    static constexpr VkVertexInputAttributeDescription GetAttributeDescription() noexcept
     {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
+        VkVertexInputAttributeDescription attributeDescription = {};
+        attributeDescription.binding                           = 0;
+        attributeDescription.location                          = 0;
+        attributeDescription.format                            = VK_FORMAT_R32G32_SFLOAT; // vec2
+        attributeDescription.offset                            = offsetof(VertexQuad, pos);
 
-        attributeDescriptions[0].binding  = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT; // vec3
-        attributeDescriptions[0].offset   = offsetof(VertexQuad, pos);
-
-        attributeDescriptions[1].binding  = 0;
-        attributeDescriptions[1].location = 1;                       // 和顶点着色器的 layout(location = 1) in 对应
-        attributeDescriptions[1].format   = VK_FORMAT_R32G32_SFLOAT; // vec2
-        attributeDescriptions[1].offset   = offsetof(VertexQuad, texCoord);
-
-        return attributeDescriptions;
+        return attributeDescription;
     }
 };
 
@@ -145,7 +138,7 @@ struct hash<VertexQuad>
 {
     size_t operator()(VertexQuad const& vertex) const
     {
-        return (hash<glm::vec3>()(vertex.pos)) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
+        return hash<glm::vec2>()(vertex.pos);
     }
 };
 } // namespace std
@@ -1111,16 +1104,16 @@ private:
         fragShaderStageInfo.pName                           = "main";
         fragShaderStageInfo.pSpecializationInfo             = nullptr;
 
-        auto bindingDescription    = VertexQuad::GetBindingDescription();
-        auto attributeDescriptions = VertexQuad::GetAttributeDescriptions();
+        auto bindingDescription   = VertexQuad::GetBindingDescription();
+        auto attributeDescription = VertexQuad::GetAttributeDescription();
 
         // 顶点信息
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInputInfo.vertexBindingDescriptionCount        = 1;
         vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
-        vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptions.size());
-        vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
+        vertexInputInfo.vertexAttributeDescriptionCount      = 1;
+        vertexInputInfo.pVertexAttributeDescriptions         = &attributeDescription;
 
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
@@ -1850,10 +1843,10 @@ private:
     {
         // clang-format off
         std::vector<VertexQuad> vertices { 
-            { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } }, 
-            { {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f } },
-            { {  1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } }, 
-            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } },
+            { { -1.0f,  1.0f } }, 
+            { {  1.0f,  1.0f } },
+            { {  1.0f, -1.0f } }, 
+            { { -1.0f, -1.0f } },
         };
         // clang-format on
 
