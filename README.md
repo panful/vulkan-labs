@@ -280,7 +280,7 @@ vkEndCommandBuffer()
 绘制多个三角形，创建多个`vertex buffer`和`index buffer`，在一次渲染循环中`DrawFrame()`多次调用`vkCmdDraw`或`vkCmdDrawIndexed`
 - 02_dynamicUniformBuffers
 `VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC`的使用
-对不同的图元设置不同的`uniform`，比如一次渲染循环需要绘制多个三角形，每个三角形使用不同的`uniform`设置不同的颜色
+对不同的图元设置不同的`uniform`，比如一次渲染循环需要绘制多个三角形（多次DrawCall），每个三角形设置不同的颜色。使用的是同一个`DynamicUniformBuffer`，每一次DrawCall通过不同的偏移值读取不同的颜色值
 - 03_pipelines
 创建多个`pipeline`，每个`pipeline`对应不同的绘制模式（点、线、面），多边形模式（填充、线框）
 - 04_pushconstants

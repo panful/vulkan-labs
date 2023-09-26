@@ -776,8 +776,8 @@ private:
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
     void CreateGraphicsPipeline()
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/02_01_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/02_01_frag.spv");
+        auto vertShaderCode = ReadFile("../resources/shaders/02_01_base_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/02_01_base_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);

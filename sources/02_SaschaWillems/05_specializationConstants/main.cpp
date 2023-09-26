@@ -796,8 +796,8 @@ private:
     /// @param mode 三角形是否填充，三角面、三角线框
     void CreateGraphicsPipeline(VkPipeline& pipeline, VkPrimitiveTopology topo, VkPolygonMode mode, uint32_t constant_id)
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/02_05_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/02_05_frag.spv");
+        auto vertShaderCode = ReadFile("../resources/shaders/02_05_base_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/02_05_base_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
