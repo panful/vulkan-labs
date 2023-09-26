@@ -289,3 +289,7 @@ vkEndCommandBuffer()
 - 05_specializationConstants
 创建多个`pipeline`，每个`pipeline`设置不同的着色器常量(`constant_id`)
 `constant_id`可以在着色器编译时就将常量写入，并且不可更改，避免了着色器内部的分支展开，可以优化着色器的代码，运行时性能也更好，`uber(uniform branch)`使用`uniform`控制的分支要比`constant_id`控制慢20%-30%
+- 06_inputAttachments
+利用subpass将颜色附件、深度附件显示到屏幕，在**01_06_loadingModels**的基础上更改
+- 07_imgui
+ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改

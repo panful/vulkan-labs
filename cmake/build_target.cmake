@@ -11,14 +11,19 @@ function(BuildTarget path)
             file(GLOB_RECURSE subdir_sources ${subdir}/*.cpp)
             set(target_name "${number}_${tar_name}")
 
+            # IMGUI
+            file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/3rdparty/imgui/src/*)
+
             # target
-            add_executable(${target_name} ${subdir_sources})
+            add_executable(${target_name} ${subdir_sources} ${IMGUI_SRC})
 
             # 3rdparty
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/glm/include)
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/include)
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/stb_image)
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/tiny_obj)
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/imgui/include)
+            
             target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/lib/$<IF:$<CONFIG:Debug>,Debug,Release>/${CMAKE_HOST_SYSTEM_NAME})
 
             # vulkan
