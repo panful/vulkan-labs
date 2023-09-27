@@ -293,3 +293,5 @@ vkEndCommandBuffer()
 利用subpass将颜色附件、深度附件显示到屏幕，在**01_06_loadingModels**的基础上更改
 - 07_imgui
 ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改
+- 08_deferredShading
+使用subpass延迟着色

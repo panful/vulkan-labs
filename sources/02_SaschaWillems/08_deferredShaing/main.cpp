@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -35,6 +36,9 @@ constexpr uint32_t HEIGHT = 600;
 
 // 同时并行处理的帧数
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+// 光源个数
+constexpr int MAX_LIGHT_NUM = 8;
 
 // 需要开启的校验层的名称
 const std::vector<const char*> g_validationLayers = { "VK_LAYER_KHRONOS_validation" };
@@ -154,6 +158,18 @@ struct UniformBufferObject
     glm::mat4 proj { glm::mat4(1.f) };
 };
 
+struct Light
+{
+    glm::vec4 position_shininess { glm::vec4(0.f) }; // 位置和高光度
+    glm::vec4 color_radius { glm::vec4(0.f) };       // 颜色和衰减
+};
+
+struct UboLight
+{
+    glm::vec4 viewPos { glm::vec4(0.f) };
+    Light lights[MAX_LIGHT_NUM] {};
+};
+
 /// @brief 支持图形和呈现的队列族
 struct QueueFamilyIndices
 {
@@ -229,6 +245,7 @@ private:
         CreateIndexBuffer();
         CreateIndexBufferQuad();
         CreateUniformBuffers();
+        CreateUniformBufferLight();
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateDescriptorSetsQuad();
@@ -236,6 +253,7 @@ private:
         CreateCommandBuffers();
         CreateSyncObjects();
         InitImGui();
+        InitLight();
     }
 
     void MainLoop()
@@ -286,6 +304,9 @@ private:
         {
             vkDestroyBuffer(m_device, m_uniformBuffers.at(i), nullptr);
             vkFreeMemory(m_device, m_uniformBuffersMemory.at(i), nullptr);
+
+            vkDestroyBuffer(m_device, m_uniformBufferLight.at(i), nullptr);
+            vkFreeMemory(m_device, m_uniformBufferLightMemory.at(i), nullptr);
         }
 
         vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
@@ -322,12 +343,62 @@ private:
 
         ImGui::Begin("Hello, world!", 0, ImGuiWindowFlags_NoMove);
         {
-            std::vector<const char*> attachments { "Color", "Normal", "Depth" };
+            std::vector<const char*> attachments { "NoLight", "Normal", "Depth", "DeferredShading" };
             ImGui::Combo("Attachment", &m_attachmentIndex, attachments.data(), static_cast<int>(attachments.size()));
+            ImGui::Checkbox("Rotate", &m_modelRatote);
+            ImGui::SliderFloat("Shininess", &m_shininess, 0.f, 100.f);
+            ImGui::SliderFloat("Radius", &m_radius, 0.f, 100.f);
+
+            for (auto& light : m_light.lights)
+            {
+                light.color_radius.w       = m_radius;
+                light.position_shininess.w = m_shininess;
+            }
+
+            if (ImGui::Button("Random Light"))
+            {
+                static std::default_random_engine engine;
+                std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+
+                for (auto& light : m_light.lights)
+                {
+                    light.color_radius.r = dis(engine);
+                    light.color_radius.g = dis(engine);
+                    light.color_radius.b = dis(engine);
+                }
+            }
+            if (ImGui::SameLine(), ImGui::Button("White Light"))
+            {
+                for (auto& light : m_light.lights)
+                {
+                    light.color_radius.r = 1.f;
+                    light.color_radius.g = 1.f;
+                    light.color_radius.b = 1.f;
+                }
+            }
+
+            static auto lastTime { 0.0 };
+            auto currentTime = glfwGetTime();
+            auto fps         = 1.0 / (currentTime - lastTime);
+            lastTime         = currentTime;
+            ImGui::Text(("FPS: " + std::to_string(fps)).c_str());
         }
         ImGui::End();
 
         ImGui::Render();
+    }
+
+    void InitLight()
+    {
+        m_light.viewPos   = glm::vec4(2.f, 2.f, 2.f, 0.f);
+        m_light.lights[0] = Light { { -5.f, -5.f, 5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[1] = Light { { 5.f, -5.f, 5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[2] = Light { { 5.f, 5.f, 5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[3] = Light { { -5.f, 5.f, 5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[4] = Light { { -5.f, -5.f, -5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[5] = Light { { 5.f, -5.f, -5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[6] = Light { { 5.f, 5.f, -5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
+        m_light.lights[7] = Light { { -5.f, 5.f, -5.f, 0.f }, { 1.f, 1.f, 1.f, 1.f } };
     }
 
     /// @brief 创建 Vulkan 实例
@@ -935,8 +1006,14 @@ private:
             // 程序第一次启动的时候并不会报错，具体原因不清楚
             if (!first)
             {
+                TransitionImageLayout(m_attachmentImageColor[i], m_swapChainImageFormat, VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+                TransitionImageLayout(m_attachmentImageNormal[i], VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
                 TransitionImageLayout(m_attachmentImagePosition[i], VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+                TransitionImageLayout(m_attachmentImageDepth[i], FindDepthFormat(), VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
             }
         }
     }
@@ -1840,7 +1917,12 @@ private:
             depthImageInfo.imageView   = m_attachmentViewDepth[i];
             depthImageInfo.sampler     = nullptr;
 
-            std::array<VkWriteDescriptorSet, 4> descriptorWrites {};
+            VkDescriptorBufferInfo bufferInfo {};
+            bufferInfo.buffer = m_uniformBufferLight.at(i);
+            bufferInfo.offset = 0;
+            bufferInfo.range  = sizeof(UboLight);
+
+            std::array<VkWriteDescriptorSet, 5> descriptorWrites {};
 
             // 颜色附件输入
             descriptorWrites[0].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1867,7 +1949,7 @@ private:
             // 顶点位置附件
             descriptorWrites[2].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[2].dstSet           = m_descriptorSetsQuad[i];
-            descriptorWrites[2].dstBinding       = 1;
+            descriptorWrites[2].dstBinding       = 2;
             descriptorWrites[2].dstArrayElement  = 0;
             descriptorWrites[2].descriptorType   = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
             descriptorWrites[2].descriptorCount  = 1;
@@ -1885,6 +1967,17 @@ private:
             descriptorWrites[3].pBufferInfo      = nullptr;
             descriptorWrites[3].pImageInfo       = &depthImageInfo;
             descriptorWrites[3].pTexelBufferView = nullptr;
+
+            // light
+            descriptorWrites[4].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[4].dstSet           = m_descriptorSetsQuad[i]; // 指定要更新的描述符集对象
+            descriptorWrites[4].dstBinding       = 7;                       // 指定缓冲绑定
+            descriptorWrites[4].dstArrayElement  = 0;                       // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrites[4].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrites[4].descriptorCount  = 1;
+            descriptorWrites[4].pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
+            descriptorWrites[4].pImageInfo       = nullptr;     // 指定描述符引用的图像数据
+            descriptorWrites[4].pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
 
             // 更新描述符的配置
             vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
@@ -2225,7 +2318,7 @@ private:
 
     void CreateDescriptorSetLayoutQuad()
     {
-        std::array<VkDescriptorSetLayoutBinding, 4> setLayoutBindings {};
+        std::array<VkDescriptorSetLayoutBinding, 5> setLayoutBindings {};
         setLayoutBindings[0].binding         = 0;
         setLayoutBindings[0].descriptorCount = 1;
         setLayoutBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
@@ -2245,6 +2338,13 @@ private:
         setLayoutBindings[3].descriptorCount = 1;
         setLayoutBindings[3].descriptorType  = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
         setLayoutBindings[3].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        // light
+        setLayoutBindings[4].binding            = 7;
+        setLayoutBindings[4].descriptorCount    = 1;
+        setLayoutBindings[4].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        setLayoutBindings[4].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+        setLayoutBindings[4].pImmutableSamplers = nullptr; // 指定图像采样相关的属性
 
         VkDescriptorSetLayoutCreateInfo layoutInfo = {};
         layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -2275,6 +2375,22 @@ private:
         }
     }
 
+    void CreateUniformBufferLight()
+    {
+        VkDeviceSize bufferSize = sizeof(UboLight);
+
+        m_uniformBufferLight.resize(MAX_FRAMES_IN_FLIGHT);
+        m_uniformBufferLightMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        m_uniformBufferLightMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                m_uniformBufferLight.at(i), m_uniformBufferLightMemory.at(i));
+            vkMapMemory(m_device, m_uniformBufferLightMemory.at(i), 0, bufferSize, 0, &m_uniformBufferLightMapped.at(i));
+        }
+    }
+
     /// @brief 在绘制每一帧时更新uniform
     /// @param currentImage
     void UpdateUniformBuffer(uint32_t currentImage)
@@ -2283,15 +2399,25 @@ private:
         auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
 
         UniformBufferObject ubo {};
-        ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(45.f), glm::vec3(1.f, 1.f, 0.f));
-        ubo.view  = glm::lookAt(glm::vec3(2.f, 2.f, 2.f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
-        ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
+        if (m_modelRatote)
+        {
+            ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(45.f), glm::vec3(1.f, 1.f, 0.f));
+        }
+        else
+        {
+            ubo.model = glm::mat4(1.f);
+        }
+        ubo.view = glm::lookAt(glm::vec3(2.f, 2.f, 2.f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
+        ubo.proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
 
         // glm的裁剪坐标的Y轴和 Vulkan 是相反的
         ubo.proj[1][1] *= -1;
 
         // 将变换矩阵的数据复制到uniform缓冲
         std::memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+
+        // 更新光源
+        std::memcpy(m_uniformBufferLightMapped[currentImage], &m_light, sizeof(m_light));
     }
 
     /// @brief 创建描述符池，描述符集需要通过描述符池来创建
@@ -2299,7 +2425,7 @@ private:
     {
         std::array<VkDescriptorPoolSize, 3> poolSizes {};
         poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // mvp light
         poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         poolSizes[2].type            = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;             // 输入附件
@@ -2309,7 +2435,7 @@ private:
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
         poolInfo.pPoolSizes    = poolSizes.data();
-        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 4); // 指定可以分配的最大描述符集个数
+        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 4 * 2); // 指定可以分配的最大描述符集个数
         poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
 
         if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
@@ -2420,7 +2546,12 @@ private:
             depthImageInfo.imageView   = m_attachmentViewDepth[i];
             depthImageInfo.sampler     = nullptr;
 
-            std::array<VkWriteDescriptorSet, 4> descriptorWrites {};
+            VkDescriptorBufferInfo bufferInfo {};
+            bufferInfo.buffer = m_uniformBufferLight.at(i);
+            bufferInfo.offset = 0;
+            bufferInfo.range  = sizeof(UboLight);
+
+            std::array<VkWriteDescriptorSet, 5> descriptorWrites {};
 
             // 颜色附件输入
             descriptorWrites[0].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2447,7 +2578,7 @@ private:
             // 顶点位置附件
             descriptorWrites[2].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[2].dstSet           = m_descriptorSetsQuad[i];
-            descriptorWrites[2].dstBinding       = 1;
+            descriptorWrites[2].dstBinding       = 2;
             descriptorWrites[2].dstArrayElement  = 0;
             descriptorWrites[2].descriptorType   = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
             descriptorWrites[2].descriptorCount  = 1;
@@ -2465,6 +2596,17 @@ private:
             descriptorWrites[3].pBufferInfo      = nullptr;
             descriptorWrites[3].pImageInfo       = &depthImageInfo;
             descriptorWrites[3].pTexelBufferView = nullptr;
+
+            // light
+            descriptorWrites[4].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[4].dstSet           = m_descriptorSetsQuad[i]; // 指定要更新的描述符集对象
+            descriptorWrites[4].dstBinding       = 7;                       // 指定缓冲绑定
+            descriptorWrites[4].dstArrayElement  = 0;                       // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrites[4].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrites[4].descriptorCount  = 1;
+            descriptorWrites[4].pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
+            descriptorWrites[4].pImageInfo       = nullptr;     // 指定描述符引用的图像数据
+            descriptorWrites[4].pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
 
             // 更新描述符的配置
             vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
@@ -2781,6 +2923,13 @@ private:
             throw std::runtime_error(warn + err);
         }
 
+        float min_x = std::numeric_limits<float>::max();
+        float min_y = std::numeric_limits<float>::max();
+        float min_z = std::numeric_limits<float>::max();
+        float max_x = std::numeric_limits<float>::min();
+        float max_y = std::numeric_limits<float>::min();
+        float max_z = std::numeric_limits<float>::min();
+
         std::unordered_map<Vertex, uint32_t> uniqueVertices {};
 
         for (const auto& shape : shapes)
@@ -2804,9 +2953,19 @@ private:
                 }
 
                 m_indices.push_back(uniqueVertices[vertex]);
+
+                min_x = std::min(min_x, vertex.pos.x);
+                min_y = std::min(min_y, vertex.pos.y);
+                min_z = std::min(min_z, vertex.pos.z);
+                max_x = std::max(max_x, vertex.pos.x);
+                max_y = std::max(max_y, vertex.pos.y);
+                max_z = std::max(max_z, vertex.pos.z);
             }
         }
 
+        std::cout << "Min X: " << min_x << " Max X: " << max_x << std::endl;
+        std::cout << "Min Y: " << min_y << " Max Y: " << max_y << std::endl;
+        std::cout << "Min Z: " << min_z << " Max Z: " << max_z << std::endl;
         std::cout << "vertices size: " << m_vertices.size() << "\tindices size: " << m_indices.size() << '\n';
     }
 
@@ -2990,6 +3149,15 @@ private:
     uint32_t m_minImageCount { 0 };
     VkDescriptorPool m_imguiDescriptorPool { nullptr };
     int m_attachmentIndex { 0 };
+
+    std::vector<VkBuffer> m_uniformBufferLight {};
+    std::vector<VkDeviceMemory> m_uniformBufferLightMemory {};
+    std::vector<void*> m_uniformBufferLightMapped {};
+
+    UboLight m_light {};
+    float m_shininess { 50.f };
+    float m_radius { 30.f };
+    bool m_modelRatote { true };
 };
 
 int main()
