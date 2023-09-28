@@ -30,4 +30,4 @@ endif()
 
 include(${PROJECT_SOURCE_DIR}/cmake/build_target.cmake)
 BuildTarget(${CMAKE_CURRENT_SOURCE_DIR}/sources/01_VulkanTutorial)
-BuildTarget(${CMAKE_CURRENT_SOURCE_DIR}/sources/02_SaschaWillems)
+BuildTarget(${CMAKE_CURRENT_SOURCE_DIR}/sources/02_advance)
