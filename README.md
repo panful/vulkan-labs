@@ -295,3 +295,5 @@ vkEndCommandBuffer()
 ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改
 - 08_deferredShading
 使用subpass延迟着色
+- 09_offscreen
+离屏渲染，将需要绘制的场景先绘制到一个离屏的帧缓冲上，然后将这个帧缓冲的附件（VkImage）以纹理的方式绘制到屏幕上
