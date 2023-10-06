@@ -15,6 +15,10 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -234,8 +238,10 @@ private:
         CreateDescriptorPool();
         CreateDescriptorSetsQuad();
         CreateDescriptorSetsOffscreen();
+        CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
+        InitImGui();
     }
 
     void MainLoop()
@@ -243,6 +249,7 @@ private:
         while (!glfwWindowShouldClose(m_window))
         {
             glfwPollEvents();
+            PrepareImGui();
             DrawFrame();
         }
 
@@ -253,6 +260,10 @@ private:
 
     void Cleanup() noexcept
     {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+
         vkDestroyImageView(m_device, m_depthImageView, nullptr);
         vkDestroyImage(m_device, m_depthImage, nullptr);
         vkFreeMemory(m_device, m_depthImageMemory, nullptr);
@@ -298,6 +309,7 @@ private:
             vkFreeMemory(m_device, m_uniformBuffersMemory.at(i), nullptr);
         }
 
+        vkDestroyDescriptorPool(m_device, m_imguiDescriptorPool, nullptr);
         vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayoutQuad, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_offscreenDescriptorSetLayout, nullptr);
@@ -325,6 +337,19 @@ private:
     }
 
 private:
+    /// @brief 添加需要渲染的GUI控件
+    void PrepareImGui()
+    {
+        ImGui::NewFrame();
+
+        ImGui::Begin("Post process", 0, ImGuiWindowFlags_NoMove);
+        {
+        }
+        ImGui::End();
+
+        ImGui::Render();
+    }
+
     /// @brief 创建 Vulkan 实例
     void CreateInstance()
     {
@@ -798,16 +823,16 @@ private:
 
         // 交换链中的图像数量，可以理解为队列的长度，指定运行时图像的最小数量
         // maxImageCount数值为0代表除了内存之外没有限制
-        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+        m_minImageCount = swapChainSupport.capabilities.minImageCount + 1;
+        if (swapChainSupport.capabilities.maxImageCount > 0 && m_minImageCount > swapChainSupport.capabilities.maxImageCount)
         {
-            imageCount = swapChainSupport.capabilities.maxImageCount;
+            m_minImageCount = swapChainSupport.capabilities.maxImageCount;
         }
 
         VkSwapchainCreateInfoKHR createInfo = {};
         createInfo.sType                    = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         createInfo.surface                  = m_surface;
-        createInfo.minImageCount            = imageCount;
+        createInfo.minImageCount            = m_minImageCount;
         createInfo.imageFormat              = surfaceFormat.format;
         createInfo.imageColorSpace          = surfaceFormat.colorSpace;
         createInfo.imageExtent              = extent;
@@ -856,9 +881,9 @@ private:
 
         // 获取交换链中图像，图像会在交换链销毁的同时自动清理
         // 之前给VkSwapchainCreateInfoKHR 设置了期望的图像数量，但是实际运行允许创建更多的图像数量，因此需要重新获取数量
-        vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, nullptr);
-        m_swapChainImages.resize(imageCount);
-        vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_swapChainImages.data());
+        vkGetSwapchainImagesKHR(m_device, m_swapChain, &m_minImageCount, nullptr);
+        m_swapChainImages.resize(m_minImageCount);
+        vkGetSwapchainImagesKHR(m_device, m_swapChain, &m_minImageCount, m_swapChainImages.data());
 
         m_swapChainImageFormat = surfaceFormat.format;
         m_swapChainExtent      = extent;
@@ -1434,6 +1459,52 @@ private:
         }
     }
 
+    /// @brief 初始化ImGui
+    void InitImGui()
+    {
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.DisplaySize = ImVec2((float)(WIDTH), (float)(HEIGHT));
+        io.Fonts->Build();
+
+        ImGui::StyleColorsDark();
+        ImGui_ImplGlfw_InitForVulkan(m_window, true);
+
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance                  = m_instance;
+        init_info.PhysicalDevice            = m_physicalDevice;
+        init_info.Device                    = m_device;
+        init_info.Queue                     = m_presentQueue;
+        init_info.DescriptorPool            = m_imguiDescriptorPool;
+        init_info.Subpass                   = 0;
+        init_info.MinImageCount             = m_minImageCount;
+        init_info.ImageCount                = m_minImageCount;
+        init_info.MSAASamples               = VK_SAMPLE_COUNT_1_BIT;
+
+        ImGui_ImplVulkan_Init(&init_info, m_renderPassQuad);
+
+        vkResetCommandPool(m_device, m_commandPool, 0);
+
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_commandBuffers[m_currentFrame], &begin_info);
+
+        ImGui_ImplVulkan_CreateFontsTexture(m_commandBuffers[m_currentFrame]);
+
+        VkSubmitInfo end_info       = {};
+        end_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        end_info.commandBufferCount = 1;
+        end_info.pCommandBuffers    = &m_commandBuffers[m_currentFrame];
+        vkEndCommandBuffer(m_commandBuffers[m_currentFrame]);
+
+        vkQueueSubmit(m_graphicsQueue, 1, &end_info, VK_NULL_HANDLE);
+        vkDeviceWaitIdle(m_device);
+
+        ImGui_ImplVulkan_DestroyFontUploadObjects();
+    }
+
     /// @brief 创建指令池，用于管理指令缓冲对象使用的内存，并负责指令缓冲对象的分配
     void CreateCommandPool()
     {
@@ -1568,6 +1639,9 @@ private:
         vkCmdBindDescriptorSets(
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayoutQuad, 0, 1, &m_descriptorSetsQuad.at(m_currentFrame), 0, nullptr);
         vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+
+        // 绘制ImGui
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -2558,6 +2632,37 @@ private:
         std::cout << "vertices size: " << m_vertices.size() << "\tindices size: " << m_indices.size() << '\n';
     }
 
+    /// @brief 创建ImGui的描述符池
+    void CreateImGuiDescriptorPool()
+    {
+        // clang-format off
+        std::vector<VkDescriptorPoolSize> poolSizes {
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } 
+        };
+        // clang-format on
+
+        VkDescriptorPoolCreateInfo poolInfo = {};
+        poolInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        poolInfo.maxSets                    = 1000 * static_cast<uint32_t>(poolSizes.size());
+        poolInfo.poolSizeCount              = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes                 = poolSizes.data();
+        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_imguiDescriptorPool))
+        {
+            throw std::runtime_error("failed to create descriptor pool");
+        }
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -2695,6 +2800,9 @@ private:
     VkDeviceMemory m_offscreenVertexBufferMemory { nullptr };
     VkBuffer m_offscreenIndexBuffer { nullptr };
     VkDeviceMemory m_offscreenIndexBufferMemory { nullptr };
+
+    uint32_t m_minImageCount { 0 };
+    VkDescriptorPool m_imguiDescriptorPool { nullptr };
 };
 
 int main()
