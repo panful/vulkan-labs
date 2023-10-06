@@ -344,6 +344,8 @@ private:
 
         ImGui::Begin("Post process", 0, ImGuiWindowFlags_NoMove);
         {
+            std::vector<const char*> filters { "Inversion", "Grayscale", "Sharpen", "Blur", "EdgeDetection", "Default" };
+            ImGui::Combo("Filter", &m_postIndex, filters.data(), static_cast<int>(filters.size()));
         }
         ImGui::End();
 
@@ -1061,12 +1063,18 @@ private:
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates    = dynamicStates.data();
 
+        VkPushConstantRange pushConstantRange = {};
+        pushConstantRange.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset              = 0;
+        pushConstantRange.size                = sizeof(int);
+
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount         = 1;
         pipelineLayoutInfo.pSetLayouts            = &m_descriptorSetLayoutQuad;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
 
         if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayoutQuad))
         {
@@ -1632,6 +1640,8 @@ private:
         scissorQuad.extent   = m_swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissorQuad);
 
+        vkCmdPushConstants(commandBuffer, m_pipelineLayoutQuad, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(int), &m_postIndex);
+
         VkBuffer vertexBuffersQuad[] = { m_vertexBufferQuad };
 
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersQuad, offsets);
@@ -1888,10 +1898,10 @@ private:
     {
         // clang-format off
         std::vector<VertexQuad> vertices { 
-            { { -0.8f,  0.8f, 0.f, 1.f } }, 
-            { {  0.8f,  0.8f, 1.f, 1.f } },
-            { {  0.8f, -0.8f, 1.f, 0.f } }, 
-            { { -0.8f, -0.8f, 0.f, 0.f } },
+            { { -1.f,  1.f, 0.f, 1.f } }, 
+            { {  1.f,  1.f, 1.f, 1.f } },
+            { {  1.f, -1.f, 1.f, 0.f } }, 
+            { { -1.f, -1.f, 0.f, 0.f } },
         };
         // clang-format on
 
@@ -2803,6 +2813,7 @@ private:
 
     uint32_t m_minImageCount { 0 };
     VkDescriptorPool m_imguiDescriptorPool { nullptr };
+    int m_postIndex { 0 };
 };
 
 int main()
