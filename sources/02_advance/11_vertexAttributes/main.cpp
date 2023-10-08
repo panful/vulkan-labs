@@ -66,6 +66,44 @@ struct Vertex
     }
 };
 
+struct VertexSeparate
+{
+    using pos_type   = glm::vec2;
+    using color_type = glm::vec3;
+
+    static constexpr std::array<VkVertexInputBindingDescription, 2> GetBindingDescriptions() noexcept
+    {
+        std::array<VkVertexInputBindingDescription, 2> bindingDescriptions {};
+
+        bindingDescriptions[0].binding   = 0;
+        bindingDescriptions[0].stride    = sizeof(pos_type);
+        bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        bindingDescriptions[1].binding   = 1;
+        bindingDescriptions[1].stride    = sizeof(color_type);
+        bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return bindingDescriptions;
+    }
+
+    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
+    {
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
+
+        attributeDescriptions[0].binding  = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].offset   = 0;
+
+        attributeDescriptions[1].binding  = 1;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset   = 0;
+
+        return attributeDescriptions;
+    }
+};
+
 /// @brief 支持图形和呈现的队列族
 struct QueueFamilyIndices
 {
@@ -87,11 +125,25 @@ struct SwapChainSupportDetails
 };
 
 // clang-format off
-const std::vector<Vertex> vertices  {
-    {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
-    {{-0.5f,  0.5f}, {1.f, 0.f, 0.f}},
-    {{ 0.5f,  0.5f}, {0.f, 1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {0.f, 1.f, 0.f}},
+const std::vector<Vertex> vertices{
+    {{ -0.5f, -0.5f }, { 1.f, 0.f, 0.f }},
+    {{ -0.5f,  0.5f }, { 1.f, 0.f, 0.f }},
+    {{  0.5f,  0.5f }, { 0.f, 1.f, 0.f }},
+    {{  0.5f, -0.5f }, { 0.f, 1.f, 0.f }},
+};
+
+const std::vector<VertexSeparate::pos_type> vertices_pos{
+    { -0.5f, -0.5f },
+    { -0.5f,  0.5f },
+    {  0.5f,  0.5f },
+    {  0.5f, -0.5f },
+};
+
+const std::vector<VertexSeparate::color_type> vertices_color{
+    { 1.f, 0.f, 0.f },
+    { 1.f, 0.f, 0.f },
+    { 0.f, 1.f, 0.f },
+    { 0.f, 1.f, 0.f },
 };
 
 const std::vector<uint16_t> indices{
@@ -143,6 +195,7 @@ private:
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        CreateVertexBufferAttributes();
         CreateIndexBuffer();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -167,10 +220,15 @@ private:
 
         vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, m_vertexPosBuffer, nullptr);
+        vkFreeMemory(m_device, m_vertexPosBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, m_vertexColorBuffer, nullptr);
+        vkFreeMemory(m_device, m_vertexColorBufferMemory, nullptr);
         vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
+        vkDestroyPipeline(m_device, m_graphicsPipelineSeparate, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
 
@@ -742,7 +800,7 @@ private:
             VkImageViewCreateInfo createInfo           = {};
             createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image                           = m_swapChainImages.at(i);
-            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;         // 1d 2d 3d cube纹理
+            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D; // 1d 2d 3d cube纹理
             createInfo.format                          = m_swapChainImageFormat;
             createInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY; // 图像颜色通过的映射
             createInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -795,6 +853,16 @@ private:
         vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
         vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
+
+        auto bindingDescriptionsSeparate   = VertexSeparate::GetBindingDescriptions();
+        auto attributeDescriptionsSeparate = VertexSeparate::GetAttributeDescriptions();
+
+        VkPipelineVertexInputStateCreateInfo vertexInputInfoSeparate = {};
+        vertexInputInfoSeparate.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfoSeparate.vertexBindingDescriptionCount        = static_cast<uint32_t>(bindingDescriptionsSeparate.size());
+        vertexInputInfoSeparate.pVertexBindingDescriptions           = bindingDescriptionsSeparate.data();
+        vertexInputInfoSeparate.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptionsSeparate.size());
+        vertexInputInfoSeparate.pVertexAttributeDescriptions         = attributeDescriptionsSeparate.data();
 
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
@@ -910,6 +978,13 @@ private:
             throw std::runtime_error("failed to create graphics pipeline");
         }
 
+        // 创建顶点属性分离的渲染管线
+        pipelineInfo.pVertexInputState = &vertexInputInfoSeparate;
+        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipelineSeparate))
+        {
+            throw std::runtime_error("failed to create graphics pipeline");
+        }
+
         vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
         vkDestroyShaderModule(m_device, vertShaderModule, nullptr);
     }
@@ -956,7 +1031,7 @@ private:
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
         subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
+        subpass.pColorAttachments    = &colorAttachmentRef; // 指定颜色附着
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
@@ -1064,7 +1139,7 @@ private:
         renderPassInfo.framebuffer           = framebuffer;  // 指定使用的帧缓冲对象
         renderPassInfo.renderArea.offset     = { 0, 0 };     // 指定用于渲染的区域
         renderPassInfo.renderArea.extent     = m_swapChainExtent;
-        renderPassInfo.clearValueCount       = 1;            // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
+        renderPassInfo.clearValueCount       = 1; // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
         renderPassInfo.pClearValues          = &clearColor;
 
         // 所有可以记录指令到指令缓冲的函数，函数名都带有一个 vkCmd 前缀
@@ -1074,10 +1149,6 @@ private:
         // 2.使用的渲染流程的信息
         // 3.指定渲染流程如何提供绘制指令的标记
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        // 绑定图形管线
-        // 2.指定管线对象是图形管线还是计算管线
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
         VkViewport viewport = {};
         viewport.x          = 0.f;
@@ -1095,18 +1166,30 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { m_vertexBuffer };
-        VkDeviceSize offsets[]   = { 0 };
-        // 绑定顶点缓冲
-        // 2.偏移值
-        // 3.顶点缓冲数量
-        // 4.需要绑定的顶点缓冲数组
-        // 5.顶点数据在顶点缓冲中的偏移值数组
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        // 绘制
-        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        if (0)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+
+            VkBuffer vertexBuffers[] = { m_vertexBuffer };
+            VkDeviceSize offsets[]   = { 0 };
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        }
+        else
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipelineSeparate);
+
+            std::array<VkBuffer, 2> vertexBuffers = { m_vertexPosBuffer, m_vertexColorBuffer };
+            VkDeviceSize offsets[]                = { 0, 0 };
+            // 2.偏移值
+            // 3.顶点缓冲数量
+            // 4.需要绑定的顶点缓冲数组
+            // 5.顶点数据在顶点缓冲中的偏移值数组
+            vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets);
+            vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        }
 
         // 提交绘制操作到指定缓冲
         // 2.顶点个数
@@ -1166,7 +1249,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1184,9 +1267,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1327,6 +1410,38 @@ private:
         // 使用函数的方法性能更好
         // 写入数据到映射的内存后，调用 vkFlushMappedMemoryRanges
         // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
+    }
+
+    /// @brief 分开创建顶点属性Buffer
+    void CreateVertexBufferAttributes()
+    {
+        auto tmpCreateVertexBuffer = [this](VkBuffer& buffer, VkDeviceMemory& memory, VkDeviceSize bufferSize, const void* dataPointer)
+        {
+            VkBuffer stagingBuffer {};
+            VkDeviceMemory stagingBufferMemory {};
+
+            CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                stagingBuffer, stagingBufferMemory);
+
+            void* data { nullptr };
+            vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+            std::memcpy(data, dataPointer, bufferSize);
+            vkUnmapMemory(m_device, stagingBufferMemory);
+
+            CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                buffer, memory);
+
+            CopyBuffer(stagingBuffer, buffer, bufferSize);
+
+            vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+            vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+        };
+
+        VkDeviceSize posSize   = sizeof(VertexSeparate::pos_type) * vertices_pos.size();
+        VkDeviceSize colorSize = sizeof(VertexSeparate::color_type) * vertices_color.size();
+
+        tmpCreateVertexBuffer(m_vertexPosBuffer, m_vertexPosBufferMemory, posSize, vertices_pos.data());
+        tmpCreateVertexBuffer(m_vertexColorBuffer, m_vertexColorBufferMemory, colorSize, vertices_color.data());
     }
 
     /// @brief 创建索引缓冲
@@ -1546,7 +1661,7 @@ private:
     VkDevice m_device { nullptr };
     VkQueue m_graphicsQueue { nullptr }; // 图形队列
     VkSurfaceKHR m_surface { nullptr };
-    VkQueue m_presentQueue { nullptr };  // 呈现队列
+    VkQueue m_presentQueue { nullptr }; // 呈现队列
     VkSwapchainKHR m_swapChain { nullptr };
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};
@@ -1567,6 +1682,12 @@ private:
     VkDeviceMemory m_vertexBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
+
+    VkPipeline m_graphicsPipelineSeparate { nullptr };
+    VkBuffer m_vertexPosBuffer { nullptr };
+    VkDeviceMemory m_vertexPosBufferMemory { nullptr };
+    VkBuffer m_vertexColorBuffer { nullptr };
+    VkDeviceMemory m_vertexColorBufferMemory { nullptr };
 };
 
 int main()
