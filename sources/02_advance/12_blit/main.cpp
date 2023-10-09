@@ -11,6 +11,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -40,6 +42,13 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::vector<const char*> g_validationLayers = { "VK_LAYER_KHRONOS_validation" };
 // 交换链扩展
 const std::vector<const char*> g_deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+// 写图片文件的类型
+enum class FileType
+{
+    PPM  = 0,
+    JPEG = 1,
+};
 
 // 是否启用校验层
 #ifdef NDEBUG
@@ -265,11 +274,18 @@ private:
 
         ImGui::Begin("Blit control");
         {
-            if (ImGui::Button("Save screenshot"))
+            static int index { 0 };
+
+            if (ImGui::Button("PPM"))
             {
-                std::cout << "------------------------------------------\n"
-                          << "Start saving\n";
-                std::cout << "End saving\n";
+                SaveScreenshot("screenshot_" + std::to_string(index++), FileType::PPM);
+                std::cout << "Successfully saved\n";
+            }
+
+            if (ImGui::SameLine(), ImGui::Button("JPEG"))
+            {
+                SaveScreenshot("screenshot_" + std::to_string(index++), FileType::JPEG);
+                std::cout << "Successfully saved\n";
             }
 
             ImGui::SliderFloat("RotateAngle", &m_rotateAngle, 0.f, 360.f);
@@ -767,8 +783,9 @@ private:
         createInfo.imageFormat              = surfaceFormat.format;
         createInfo.imageColorSpace          = surfaceFormat.colorSpace;
         createInfo.imageExtent              = extent;
-        createInfo.imageArrayLayers         = 1;                     // 图像包含的层次，通常为1，3d图像大于1
-        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
+        createInfo.imageArrayLayers         = 1; // 图像包含的层次，通常为1，3d图像大于1
+        createInfo.imageUsage
+            = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
 
         auto indices = FindQueueFamilies(m_physicalDevice);
         uint32_t queueFamilyIndices[]
@@ -1300,12 +1317,11 @@ private:
         vkWaitForFences(m_device, 1, &m_inFlightFences.at(m_currentFrame), VK_TRUE, std::numeric_limits<uint64_t>::max());
 
         // 从交换链获取一张图像
-        uint32_t imageIndex { 0 };
         // 3.获取图像的超时时间，此处禁用图像获取超时
         // 4.通知的同步对象
         // 5.输出可用的交换链图像的索引
-        VkResult result = vkAcquireNextImageKHR(
-            m_device, m_swapChain, std::numeric_limits<uint64_t>::max(), m_imageAvailableSemaphores.at(m_currentFrame), VK_NULL_HANDLE, &imageIndex);
+        VkResult result = vkAcquireNextImageKHR(m_device, m_swapChain, std::numeric_limits<uint64_t>::max(),
+            m_imageAvailableSemaphores.at(m_currentFrame), VK_NULL_HANDLE, &m_imageIndex);
 
         // VK_ERROR_OUT_OF_DATE_KHR 交换链不能继续使用，通常发生在窗口大小改变后
         // VK_SUBOPTIMAL_KHR 交换链仍然可以使用，但表面属性已经不能准确匹配
@@ -1324,8 +1340,8 @@ private:
 
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
-        vkResetCommandBuffer(m_commandBuffers.at(imageIndex), 0);
-        RecordCommandBuffer(m_commandBuffers.at(imageIndex), m_swapChainFramebuffers.at(imageIndex));
+        vkResetCommandBuffer(m_commandBuffers.at(m_imageIndex), 0);
+        RecordCommandBuffer(m_commandBuffers.at(m_imageIndex), m_swapChainFramebuffers.at(m_imageIndex));
 
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1335,7 +1351,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[m_imageIndex]; // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1353,9 +1369,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain;  // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &m_imageIndex; // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr;       // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1604,6 +1620,30 @@ private:
         vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, nullptr);
         // 等待传输操作完成，也可以使用栅栏，栅栏可以同步多个不同的内存传输操作，给驱动程序的优化空间也更大
         vkQueueWaitIdle(m_graphicsQueue);
+
+        vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+    }
+
+    /// @brief 使用栅栏等待命令缓冲执行完毕
+    /// @param commandBuffer
+    void EndSingleTimeCommandsWithFences(VkCommandBuffer commandBuffer) const noexcept
+    {
+        vkEndCommandBuffer(commandBuffer);
+
+        VkSubmitInfo submitInfo       = {};
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &commandBuffer;
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags             = 0;
+
+        VkFence fence { nullptr };
+        vkCreateFence(m_device, &fenceInfo, nullptr, &fence);
+        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, fence);
+        vkWaitForFences(m_device, 1, &fence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+        vkDestroyFence(m_device, fence, nullptr);
 
         vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
     }
@@ -1897,7 +1937,7 @@ private:
         VkMemoryAllocateInfo allocInfo {};
         allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize  = memRequirements.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
 
         if (VK_SUCCESS != vkAllocateMemory(m_device, &allocInfo, nullptr, &imageMemory))
         {
@@ -2166,6 +2206,136 @@ private:
         }
     }
 
+    void SaveScreenshot(const std::string& fileName, FileType type)
+    {
+        VkFormatProperties formatProps {};
+        bool supportsBlit { true };
+
+        // 检查GPU是否支持对交换链图像进行blit操作
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, m_swapChainImageFormat, &formatProps);
+        if (!(formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+        {
+            supportsBlit = false;
+            std::clog << "Device does not support blitting from optimal tiled images, using copy instead of blit!\n";
+        }
+
+        // 检查GPU是否支持对线性图像进行blit操作
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &formatProps);
+        if (!(formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT))
+        {
+            supportsBlit = false;
+            std::clog << "Device does not support blitting to linear tiled images, using copy instead of blit!\n";
+        }
+
+        // 屏幕呈现的图像
+        VkImage srcImage = m_swapChainImages[m_imageIndex];
+
+        // 用来将屏幕图像缓存起来，然后将这个图像数据保存为图片文件
+        VkImage dstImage         = {};
+        VkDeviceMemory dstMemory = {};
+        CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, dstImage, dstMemory);
+
+        auto cmdBuffer = BeginSingleTimeCommands();
+
+        // 将目标图像转换为传输目标布局
+        InsertImageMemoryBarrier(cmdBuffer, dstImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        // 将交换链图像从展示布局转换为传输源布局
+        InsertImageMemoryBarrier(cmdBuffer, srcImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        if (supportsBlit)
+        {
+            BlitImage(cmdBuffer, m_swapChainExtent.width, m_swapChainExtent.height, srcImage, dstImage);
+        }
+        else
+        {
+            CopyImage(cmdBuffer, m_swapChainExtent.width, m_swapChainExtent.height, srcImage, dstImage);
+        }
+
+        // 将目标图像转换为通用布局
+        InsertImageMemoryBarrier(cmdBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        // blit操作完成后，将交换链图像布局恢复
+        InsertImageMemoryBarrier(cmdBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        EndSingleTimeCommandsWithFences(cmdBuffer);
+
+        //-------------------------------------------------------------------------------------------------------
+        VkImageSubresource subResource        = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+        VkSubresourceLayout subResourceLayout = {};
+        vkGetImageSubresourceLayout(m_device, dstImage, &subResource, &subResourceLayout);
+
+        uint8_t* data { nullptr };
+        vkMapMemory(m_device, dstMemory, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void**>(&data));
+        data += subResourceLayout.offset;
+
+        WriteImage(fileName, type, supportsBlit, m_swapChainExtent.width, m_swapChainExtent.height, data);
+
+        vkUnmapMemory(m_device, dstMemory);
+        vkFreeMemory(m_device, dstMemory, nullptr);
+        vkDestroyImage(m_device, dstImage, nullptr);
+    }
+
+    void InsertImageMemoryBarrier(VkCommandBuffer cmdbuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
+        VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageFlags, VkPipelineStageFlags dstStageFlags)
+    {
+        VkImageMemoryBarrier barrier {};
+        barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout                       = oldLayout;
+        barrier.newLayout                       = newLayout;
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED; // 如果不进行队列所有权传输，必须这样设置
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED; // 同上
+        barrier.image                           = image;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 设置布局变换影响的范围
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 1;
+        barrier.srcAccessMask                   = srcAccessMask;
+        barrier.dstAccessMask                   = dstAccessMask;
+
+        vkCmdPipelineBarrier(cmdbuffer, srcStageFlags, dstStageFlags, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    }
+
+    void BlitImage(VkCommandBuffer cmdbuffer, uint32_t width, uint32_t height, VkImage srcImage, VkImage dstImage)
+    {
+        VkOffset3D blitSize = {};
+        blitSize.x          = width;
+        blitSize.y          = height;
+        blitSize.z          = 1;
+
+        VkImageBlit imageBlitRegion               = {};
+        imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.srcSubresource.layerCount = 1;
+        imageBlitRegion.srcOffsets[1]             = blitSize;
+        imageBlitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.dstSubresource.layerCount = 1;
+        imageBlitRegion.dstOffsets[1]             = blitSize;
+
+        vkCmdBlitImage(cmdbuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageBlitRegion,
+            VK_FILTER_NEAREST);
+    }
+
+    void CopyImage(VkCommandBuffer cmdbuffer, uint32_t width, uint32_t height, VkImage srcImage, VkImage dstImage)
+    {
+        VkImageCopy imageCopyRegion {};
+        imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageCopyRegion.srcSubresource.layerCount = 1;
+        imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageCopyRegion.dstSubresource.layerCount = 1;
+        imageCopyRegion.extent.width              = width;
+        imageCopyRegion.extent.height             = height;
+        imageCopyRegion.extent.depth              = 1;
+
+        vkCmdCopyImage(
+            cmdbuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopyRegion);
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -2238,6 +2408,71 @@ private:
         return buffer;
     }
 
+    static void WriteImage(const std::string& fileName, FileType type, bool rgba, uint32_t w, uint32_t h, const uint8_t* data)
+    {
+        switch (type)
+        {
+        case FileType::PPM:
+        {
+            std::ofstream ppmFile(fileName + ".ppm");
+            ppmFile << "P3\n" << w << " " << h << "\n255\n";
+
+            for (uint32_t y = 0; y < h; y++)
+            {
+                for (uint32_t x = 0; x < w; x++)
+                {
+                    uint32_t r { 0 }, g { 0 }, b { 0 };
+
+                    if (rgba)
+                    {
+                        // RGBA
+                        r = static_cast<uint32_t>(data[0]);
+                        g = static_cast<uint32_t>(data[1]);
+                        b = static_cast<uint32_t>(data[2]);
+                    }
+                    else
+                    {
+                        // BGRA
+                        b = static_cast<uint32_t>(data[0]);
+                        g = static_cast<uint32_t>(data[1]);
+                        r = static_cast<uint32_t>(data[2]);
+                    }
+
+                    data += 4;
+                    ppmFile << r << ' ' << g << ' ' << b << '\n';
+                }
+            }
+
+            ppmFile.close();
+        }
+        break;
+        case FileType::JPEG:
+        {
+            if (rgba)
+            {
+                stbi_write_jpg((fileName + ".jpg").c_str(), static_cast<int>(w), static_cast<int>(h), 4, data, 100);
+            }
+            else
+            {
+                std::vector<uint8_t> rgbaData(w * h * 4);
+
+                for (size_t i = 0; i < w * h * 4 - 3; i += 4)
+                {
+                    rgbaData[i]     = data[i + 2];
+                    rgbaData[i + 1] = data[i + 1];
+                    rgbaData[i + 2] = data[i];
+                    rgbaData[i + 3] = data[i + 3];
+                }
+
+                stbi_write_jpg((fileName + ".jpg").c_str(), static_cast<int>(w), static_cast<int>(h), 4, rgbaData.data(), 100);
+            }
+        }
+        break;
+        default:
+            break;
+        }
+    }
+
     static void FramebufferResizeCallback(GLFWwindow* window, int widht, int height) noexcept
     {
         auto app                  = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
@@ -2268,6 +2503,7 @@ private:
     std::vector<VkSemaphore> m_renderFinishedSemaphores {};
     std::vector<VkFence> m_inFlightFences {};
     size_t m_currentFrame { 0 };
+    uint32_t m_imageIndex { 0 };
     bool m_framebufferResized { false };
     VkBuffer m_vertexBuffer { nullptr };
     VkDeviceMemory m_vertexBufferMemory { nullptr };

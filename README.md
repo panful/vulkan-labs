@@ -233,9 +233,9 @@ vkEndCommandBuffer()
 
 ### 渲染循环
 以下命令都是异步执行，因此每次渲染循环开始时都应该判断上一次提交的指令是否执行结束，否则GPU需要处理的指令会大量堆积
-- vkAcquireNextImageKHR 获取到图像后发送一个信号
+- vkAcquireNextImageKHR “获取到图像”后发送一个信号
 - vkQueueSubmit 收到“获取图像成功的信号”后开始执行绘制命令，绘制完成后发送“绘制完成的信号”
-- vkQueuePresentKHR 收到绘制完成的信号后将该图像呈现到屏幕
+- vkQueuePresentKHR 收到“绘制完成”的信号后将该图像呈现到屏幕
 
 录制绘制指令
 - 开始记录指令          vkBeginCommandBuffer()
@@ -305,3 +305,5 @@ Interleaved: Buffer0: x0y0z0r0g0b0u0v0x1y1z1r1g1b1u1v1...
 Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1...
 ```
 不同的顶点属性使用不同的`VkPipelineVertexInputStateCreateInfo`，因此渲染管线需要创建两个。插入式的顶点属性只需要创建一个顶点`VkBuffer`，而分离式的顶点属性需要创建多个`VkBuffer`，例如`position、color、normal`，分离式提交顶点数据时将多个VkBuffer传给`vkCmdBindVertexBuffers`即可。
+- 12_blit
+**注意**：需要将`VkSwapchainCreateInfoKHR`的`imageUsage`设置为`VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT`
