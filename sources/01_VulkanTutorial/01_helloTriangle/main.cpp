@@ -685,7 +685,7 @@ private:
             VkImageViewCreateInfo createInfo           = {};
             createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image                           = m_swapChainImages.at(i);
-            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;         // 1d 2d 3d cube纹理
+            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D; // 1d 2d 3d cube纹理
             createInfo.format                          = m_swapChainImageFormat;
             createInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY; // 图像颜色通过的映射
             createInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -896,7 +896,7 @@ private:
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
         subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
+        subpass.pColorAttachments    = &colorAttachmentRef; // 指定颜色附着
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
@@ -1004,7 +1004,7 @@ private:
         renderPassInfo.framebuffer           = framebuffer;  // 指定使用的帧缓冲对象
         renderPassInfo.renderArea.offset     = { 0, 0 };     // 指定用于渲染的区域
         renderPassInfo.renderArea.extent     = m_swapChainExtent;
-        renderPassInfo.clearValueCount       = 1;            // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
+        renderPassInfo.clearValueCount       = 1; // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
         renderPassInfo.pClearValues          = &clearColor;
 
         // 所有可以记录指令到指令缓冲的函数，函数名都带有一个 vkCmd 前缀
@@ -1093,7 +1093,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1111,9 +1111,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1300,7 +1300,7 @@ private:
     VkDevice m_device { nullptr };
     VkQueue m_graphicsQueue { nullptr }; // 图形队列
     VkSurfaceKHR m_surface { nullptr };
-    VkQueue m_presentQueue { nullptr };  // 呈现队列
+    VkQueue m_presentQueue { nullptr }; // 呈现队列
     VkSwapchainKHR m_swapChain { nullptr };
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};

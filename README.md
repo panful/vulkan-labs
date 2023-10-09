@@ -256,7 +256,7 @@ vkEndCommandBuffer()
 [Vulkan Tutorial 翻译](https://github.com/fangcun010/VulkanTutorialCN)
 
 - 01_helloTriangle
-    绘制一个三色三角形
+    绘制一个三色三角形，在顶点着色器中提供顶点以及颜色数据
 - 02_vertexBuffers
     顶点缓冲、索引缓冲的使用
 - 03_uniformBuffers
@@ -292,8 +292,16 @@ vkEndCommandBuffer()
 - 06_inputAttachments
 利用subpass将颜色附件、深度附件显示到屏幕，在**01_06_loadingModels**的基础上更改
 - 07_imgui
-ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改
+ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改。**注意**：如果使用多个subpass记得初始化ImGui时设置正确的subpass
 - 08_deferredShading
 使用subpass延迟着色
 - 09_offscreen
-离屏渲染，将需要绘制的场景先绘制到一个离屏的帧缓冲上，然后将这个帧缓冲的附件（VkImage）以纹理的方式绘制到屏幕上
+RenderTarget离屏渲染，将需要绘制的场景先绘制到一个离屏的帧缓冲上，然后将这个帧缓冲的附件（VkImage）以纹理的方式绘制到屏幕上
+- 10_postProcess
+对离屏的帧缓冲图像进行后处理，从而实现各种特效，例如：反相、灰度、锐化、模糊、边缘检测等等
+- 11_vertexAttributes
+```
+Interleaved: Buffer0: x0y0z0r0g0b0u0v0x1y1z1r1g1b1u1v1...
+Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1...
+```
+不同的顶点属性使用不同的`VkPipelineVertexInputStateCreateInfo`，因此渲染管线需要创建两个。插入式的顶点属性只需要创建一个顶点`VkBuffer`，而分离式的顶点属性需要创建多个`VkBuffer`，例如`position、color、normal`，分离式提交顶点数据时将多个VkBuffer传给`vkCmdBindVertexBuffers`即可。
