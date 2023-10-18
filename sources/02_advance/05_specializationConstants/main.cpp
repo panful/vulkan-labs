@@ -989,7 +989,7 @@ private:
 
         // 子流程引用的附着
         VkAttachmentReference colorAttachmentRef = {};
-        colorAttachmentRef.attachment            = 0; // 索引，对应于片段着色器中的 layout(location = 0) out
+        colorAttachmentRef.attachment            = 0; // 索引，对应于FrameBuffer的附件数组的索引
         colorAttachmentRef.layout                = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         // 子流程

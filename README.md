@@ -264,7 +264,7 @@ vkEndCommandBuffer()
 - 04_textureMapping
     纹理的使用
 - 05_depthBuffering
-    开启深度测试
+    开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。
 - 06_loadingModels
     加载一个模型，使用纹理、开启深度测试、传递MVP矩阵
 - 07_generatingMipmaps

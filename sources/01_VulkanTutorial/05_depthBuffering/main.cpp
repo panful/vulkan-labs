@@ -1130,9 +1130,9 @@ private:
 
         VkRenderPassBeginInfo renderPassInfo = {};
         renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass            = m_renderPass;                        // 指定使用的渲染流程对象
-        renderPassInfo.framebuffer           = framebuffer;                         // 指定使用的帧缓冲对象
-        renderPassInfo.renderArea.offset     = { 0, 0 };                            // 指定用于渲染的区域
+        renderPassInfo.renderPass            = m_renderPass; // 指定使用的渲染流程对象
+        renderPassInfo.framebuffer           = framebuffer;  // 指定使用的帧缓冲对象
+        renderPassInfo.renderArea.offset     = { 0, 0 };     // 指定用于渲染的区域
         renderPassInfo.renderArea.extent     = m_swapChainExtent;
         renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size()); // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
         renderPassInfo.pClearValues = clearValues.data();
@@ -1249,7 +1249,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1267,9 +1267,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1834,8 +1834,8 @@ private:
         barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout                       = oldLayout;
         barrier.newLayout                       = newLayout;
-        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 如果不进行队列所有权传输，必须这样设置
-        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 同上
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED; // 如果不进行队列所有权传输，必须这样设置
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED; // 同上
         barrier.image                           = image;
         barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 设置布局变换影响的范围
         barrier.subresourceRange.baseMipLevel   = 0;
@@ -1943,13 +1943,13 @@ private:
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         // samplerInfo.anisotropyEnable = VK_TRUE; // 使用各向异性过滤（需要检查是否支持）
         // samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-        samplerInfo.anisotropyEnable        = VK_FALSE;                         // 不使用各向异性过滤
+        samplerInfo.anisotropyEnable        = VK_FALSE; // 不使用各向异性过滤
         samplerInfo.maxAnisotropy           = 1.0;
         samplerInfo.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK; // 使用BORDER超出范围时边界颜色
         samplerInfo.unnormalizedCoordinates = VK_FALSE;                         // 坐标系统，false为[0,1] true为[0,w]和[0,h]
         samplerInfo.compareEnable           = VK_FALSE;                         // 将样本和一个设定的值比较，阴影贴图会用到
         samplerInfo.compareOp               = VK_COMPARE_OP_ALWAYS;
-        samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;    // 设置分级细化，可以看作是过滤操作的一种
+        samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR; // 设置分级细化，可以看作是过滤操作的一种
         samplerInfo.mipLodBias              = 0.f;
         samplerInfo.minLod                  = 0.f;
         samplerInfo.maxLod                  = 0.f;
@@ -2096,7 +2096,7 @@ private:
     VkDevice m_device { nullptr };
     VkQueue m_graphicsQueue { nullptr }; // 图形队列
     VkSurfaceKHR m_surface { nullptr };
-    VkQueue m_presentQueue { nullptr };  // 呈现队列
+    VkQueue m_presentQueue { nullptr }; // 呈现队列
     VkSwapchainKHR m_swapChain { nullptr };
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};
