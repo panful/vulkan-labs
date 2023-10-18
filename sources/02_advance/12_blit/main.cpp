@@ -11,6 +11,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+#define _CRT_SECURE_NO_WARNINGS
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -1848,7 +1849,7 @@ private:
     {
         // STBI_rgb_alpha 强制使用alpha通道，如果没有会被添加一个默认的alpha值，texChannels返回图像实际的通道数
         int texWidth { 0 }, texHeight { 0 }, texChannels { 0 };
-        auto pixels = stbi_load("../resources/textures/viking_room.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        auto pixels = stbi_load("../resources/models/viking_room/viking_room.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         std::cout << "image extent: " << texWidth << '\t' << texHeight << '\t' << texChannels << '\n';
         if (!pixels)
         {
@@ -2142,7 +2143,7 @@ private:
         std::vector<tinyobj::material_t> materials {};
         std::string warn {}, err {};
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../resources/models/viking_room.obj"))
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../resources/models/viking_room/viking_room.obj"))
         {
             throw std::runtime_error(warn + err);
         }
