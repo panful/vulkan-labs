@@ -310,3 +310,5 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 13_stencil
 绘制一个小的矩形不通过模板测试，并将小矩形所在区域的模板值设置为1，再绘制一个大矩形，大矩形和小矩形重合的区域不通过模板测试，这样大矩形就只绘制一个边框。
 **注意**：开启模板测试，使用的深度模板图像格式需要为：`VK_FORMAT_D32_SFLOAT_S8_UINT`，`VkImageViewCreateInfo.subresourceRange.aspectMask`的值需要设置为：`VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT`，将`VkPipelineDepthStencilStateCreateInfo`的信息添加上模板测试的参数`VkStencilOpState`即可使用模板测试。
+- 14_cpuparticle
+基于CPU的粒子系统。点的大小在顶点着色器中设置`gl_PointSize = 10.0;`
