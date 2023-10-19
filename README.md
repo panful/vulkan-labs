@@ -264,7 +264,7 @@ vkEndCommandBuffer()
 - 04_textureMapping
     纹理的使用
 - 05_depthBuffering
-    开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。
+    开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。Z值越大，距离眼睛越远。
 - 06_loadingModels
     加载一个模型，使用纹理、开启深度测试、传递MVP矩阵
 - 07_generatingMipmaps
@@ -307,3 +307,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 不同的顶点属性使用不同的`VkPipelineVertexInputStateCreateInfo`，因此渲染管线需要创建两个。插入式的顶点属性只需要创建一个顶点`VkBuffer`，而分离式的顶点属性需要创建多个`VkBuffer`，例如`position、color、normal`，分离式提交顶点数据时将多个VkBuffer传给`vkCmdBindVertexBuffers`即可。
 - 12_blit
 **注意**：需要将`VkSwapchainCreateInfoKHR`的`imageUsage`设置为`VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT`
+- 13_stencil
+绘制一个小的矩形不通过模板测试，并将小矩形所在区域的模板值设置为1，再绘制一个大矩形，大矩形和小矩形重合的区域不通过模板测试，这样大矩形就只绘制一个边框。
+**注意**：开启模板测试，使用的深度模板图像格式需要为：`VK_FORMAT_D32_SFLOAT_S8_UINT`，`VkImageViewCreateInfo.subresourceRange.aspectMask`的值需要设置为：`VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT`，将`VkPipelineDepthStencilStateCreateInfo`的信息添加上模板测试的参数`VkStencilOpState`即可使用模板测试。

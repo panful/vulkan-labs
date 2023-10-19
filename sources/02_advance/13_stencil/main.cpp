@@ -147,7 +147,8 @@ private:
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
-        CreateGraphicsPipeline();
+        CreateGraphicsPipelineSmall();
+        CreateGraphicsPipelineLarge();
         CreateCommandPool();
         CreateDepthResources();
         CreateFramebuffers();
@@ -186,8 +187,10 @@ private:
         vkDestroyBuffer(m_device, m_indexBuffer2, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory2, nullptr);
 
-        vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+        vkDestroyPipeline(m_device, m_graphicsPipelineSmall, nullptr);
+        vkDestroyPipeline(m_device, m_graphicsPipelineLarge, nullptr);
+        vkDestroyPipelineLayout(m_device, m_pipelineLayoutSmall, nullptr);
+        vkDestroyPipelineLayout(m_device, m_pipelineLayoutLarge, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -779,7 +782,7 @@ private:
 
     /// @brief 创建图形管线
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
-    void CreateGraphicsPipeline()
+    void CreateGraphicsPipelineSmall()
     {
         auto vertShaderCode = ReadFile("../resources/shaders/02_13_base_vert.spv");
         auto fragShaderCode = ReadFile("../resources/shaders/02_13_base_frag.spv");
@@ -863,6 +866,16 @@ private:
         multisampling.alphaToCoverageEnable                = VK_FALSE;
         multisampling.alphaToOneEnable                     = VK_FALSE;
 
+        // 模板测试相关参数设置
+        VkStencilOpState stencilOp = {};
+        stencilOp.reference        = 1;    // 参考值，用于和模板缓冲中的值比较
+        stencilOp.compareMask      = 0xFF; // 比较掩码值，掩码中那些位的值为1则比较那些值，0xFF表示所有位都比较
+        stencilOp.writeMask        = 0xFF; // 是否写入模板缓冲，模板值8位，0xFF表示所有的位
+        stencilOp.compareOp        = VK_COMPARE_OP_NEVER;   // 模板测试使用的比较方法
+        stencilOp.failOp           = VK_STENCIL_OP_REPLACE; // 模板测试不通过执行的操作
+        stencilOp.depthFailOp      = VK_STENCIL_OP_KEEP;    // 模板测试通过，深度测试不通过执行的操作
+        stencilOp.passOp           = VK_STENCIL_OP_KEEP;    // 深度测试和模板测试都通过执行的操作
+
         // 深度和模板测试
         VkPipelineDepthStencilStateCreateInfo depthStencil = {};
         depthStencil.sType                                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -872,9 +885,9 @@ private:
         depthStencil.depthBoundsTestEnable                 = VK_FALSE;           // 指定可选的深度范围测试
         depthStencil.minDepthBounds                        = 0.f;
         depthStencil.maxDepthBounds                        = 1.f;
-        depthStencil.stencilTestEnable                     = VK_FALSE; // 模板测试
-        depthStencil.front                                 = {};
-        depthStencil.back                                  = {};
+        depthStencil.stencilTestEnable                     = VK_TRUE;   // 开启模板测试
+        depthStencil.front                                 = stencilOp; // 正面模板测试相应参数
+        depthStencil.back                                  = stencilOp; // 背面模板测试相应参数
 
         // 颜色混合，可以对指定帧缓冲单独设置，也可以设置全局颜色混合方式
         VkPipelineColorBlendAttachmentState colorBlendAttachment {};
@@ -906,7 +919,7 @@ private:
         pipelineLayoutInfo.setLayoutCount         = 0;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
 
-        if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout))
+        if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayoutSmall))
         {
             throw std::runtime_error("failed to create pipeline layout");
         }
@@ -926,13 +939,185 @@ private:
         pipelineInfo.pDepthStencilState           = &depthStencil;
         pipelineInfo.pColorBlendState             = &colorBlending;
         pipelineInfo.pDynamicState                = &dynamicState;
-        pipelineInfo.layout                       = m_pipelineLayout;
+        pipelineInfo.layout                       = m_pipelineLayoutSmall;
         pipelineInfo.renderPass                   = m_renderPass;
         pipelineInfo.subpass                      = 0;       // 子流程在子流程数组中的索引
         pipelineInfo.basePipelineHandle           = nullptr; // 以一个创建好的图形管线为基础创建一个新的图形管线
         pipelineInfo.basePipelineIndex            = -1; // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
 
-        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline))
+        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipelineSmall))
+        {
+            throw std::runtime_error("failed to create graphics pipeline");
+        }
+
+        vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
+        vkDestroyShaderModule(m_device, vertShaderModule, nullptr);
+    }
+
+    void CreateGraphicsPipelineLarge()
+    {
+        auto vertShaderCode = ReadFile("../resources/shaders/02_13_base_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/02_13_base_frag.spv");
+
+        VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
+        VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
+
+        VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+        vertShaderStageInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertShaderStageInfo.stage                           = VK_SHADER_STAGE_VERTEX_BIT;
+        vertShaderStageInfo.module                          = vertShaderModule;
+        vertShaderStageInfo.pName                           = "main";  // 指定调用的着色器函数，同一份代码可以实现多个着色器
+        vertShaderStageInfo.pSpecializationInfo             = nullptr; // 设置着色器常量
+
+        VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+        fragShaderStageInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragShaderStageInfo.stage                           = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragShaderStageInfo.module                          = fragShaderModule;
+        fragShaderStageInfo.pName                           = "main";
+        fragShaderStageInfo.pSpecializationInfo             = nullptr;
+
+        auto bindingDescription    = Vertex::GetBindingDescription();
+        auto attributeDescriptions = Vertex::GetAttributeDescriptions();
+
+        // 顶点信息
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+        vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount        = 1;
+        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
+        vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
+
+        // 拓扑信息
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+        inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        // 视口
+        VkViewport viewport = {};
+        viewport.x          = 0.f;
+        viewport.y          = 0.f;
+        viewport.width      = static_cast<float>(m_swapChainExtent.width);
+        viewport.height     = static_cast<float>(m_swapChainExtent.height);
+        viewport.minDepth   = 0.f; // 深度值范围，必须在 [0.f, 1.f]之间
+        viewport.maxDepth   = 1.f;
+
+        // 裁剪
+        VkRect2D scissor = {};
+        scissor.offset   = { 0, 0 };
+        scissor.extent   = m_swapChainExtent;
+
+        VkPipelineViewportStateCreateInfo viewportState = {};
+        viewportState.sType                             = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount                     = 1;
+        viewportState.pViewports                        = &viewport;
+        viewportState.scissorCount                      = 1;
+        viewportState.pScissors                         = &scissor;
+
+        // 光栅化
+        VkPipelineRasterizationStateCreateInfo rasterizer = {};
+        rasterizer.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable                       = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable                = VK_FALSE; // 设置为true会禁止一切片段输出到帧缓冲
+        rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth                              = 1.f;
+        rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;           // 表面剔除类型，正面、背面、双面剔除
+        rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
+        rasterizer.depthBiasEnable                        = VK_FALSE;
+        rasterizer.depthBiasConstantFactor                = 1.f;
+        rasterizer.depthBiasClamp                         = 0.f;
+        rasterizer.depthBiasSlopeFactor                   = 0.f;
+
+        // 多重采样
+        VkPipelineMultisampleStateCreateInfo multisampling = {};
+        multisampling.sType                                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable                  = VK_FALSE;
+        multisampling.rasterizationSamples                 = VK_SAMPLE_COUNT_1_BIT;
+        multisampling.minSampleShading                     = 1.f;
+        multisampling.pSampleMask                          = nullptr;
+        multisampling.alphaToCoverageEnable                = VK_FALSE;
+        multisampling.alphaToOneEnable                     = VK_FALSE;
+
+        // 模板测试相关参数设置
+        VkStencilOpState stencilOp = {};
+        stencilOp.reference        = 1;    // 参考值，用于和模板缓冲中的值比较
+        stencilOp.compareMask      = 0xFF; // 模板的8位值都进行比较
+        stencilOp.writeMask        = 0x00; // 只用参考值和模板缓冲中的值比较，不写入到模板缓冲，即模板缓冲只读
+        stencilOp.compareOp        = VK_COMPARE_OP_NOT_EQUAL; // 模板测试使用的比较方法
+        stencilOp.failOp           = VK_STENCIL_OP_REPLACE;   // 因为writeMask设置为0xFF，所以以下三个值都没用
+        stencilOp.depthFailOp      = VK_STENCIL_OP_KEEP;
+        stencilOp.passOp           = VK_STENCIL_OP_KEEP;
+
+        // 深度和模板测试
+        VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+        depthStencil.sType                                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable                       = VK_TRUE;            // 是否启用深度测试
+        depthStencil.depthWriteEnable                      = VK_TRUE;            // 深度测试通过后是否写入深度缓冲
+        depthStencil.depthCompareOp                        = VK_COMPARE_OP_LESS; // 深度值比较方式
+        depthStencil.depthBoundsTestEnable                 = VK_FALSE;           // 指定可选的深度范围测试
+        depthStencil.minDepthBounds                        = 0.f;
+        depthStencil.maxDepthBounds                        = 1.f;
+        depthStencil.stencilTestEnable                     = VK_TRUE; // 开启模板测试
+        depthStencil.front                                 = stencilOp;
+        depthStencil.back                                  = stencilOp;
+
+        // 颜色混合，可以对指定帧缓冲单独设置，也可以设置全局颜色混合方式
+        VkPipelineColorBlendAttachmentState colorBlendAttachment {};
+        colorBlendAttachment.colorWriteMask
+            = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending {};
+        colorBlending.sType             = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable     = VK_FALSE;
+        colorBlending.logicOp           = VK_LOGIC_OP_COPY;
+        colorBlending.attachmentCount   = 1;
+        colorBlending.pAttachments      = &colorBlendAttachment;
+        colorBlending.blendConstants[0] = 0.0f;
+        colorBlending.blendConstants[1] = 0.0f;
+        colorBlending.blendConstants[2] = 0.0f;
+        colorBlending.blendConstants[3] = 0.0f;
+
+        // 动态状态，视口大小、线宽、混合常量等
+        std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dynamicState {};
+        dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates    = dynamicStates.data();
+
+        // 管线布局，在着色器中使用 uniform 变量
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
+        pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount         = 0;
+        pipelineLayoutInfo.pushConstantRangeCount = 0;
+
+        if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayoutLarge))
+        {
+            throw std::runtime_error("failed to create pipeline layout");
+        }
+
+        VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+        // 完整的图形管线包括：着色器阶段、固定功能状态、管线布局、渲染流程
+        VkGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.sType                        = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount                   = 2;
+        pipelineInfo.pStages                      = shaderStages;
+        pipelineInfo.pVertexInputState            = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState          = &inputAssembly;
+        pipelineInfo.pViewportState               = &viewportState;
+        pipelineInfo.pRasterizationState          = &rasterizer;
+        pipelineInfo.pMultisampleState            = &multisampling;
+        pipelineInfo.pDepthStencilState           = &depthStencil;
+        pipelineInfo.pColorBlendState             = &colorBlending;
+        pipelineInfo.pDynamicState                = &dynamicState;
+        pipelineInfo.layout                       = m_pipelineLayoutLarge;
+        pipelineInfo.renderPass                   = m_renderPass;
+        pipelineInfo.subpass                      = 0;       // 子流程在子流程数组中的索引
+        pipelineInfo.basePipelineHandle           = nullptr; // 以一个创建好的图形管线为基础创建一个新的图形管线
+        pipelineInfo.basePipelineIndex            = -1; // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
+
+        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipelineLarge))
         {
             throw std::runtime_error("failed to create graphics pipeline");
         }
@@ -1122,10 +1307,6 @@ private:
         // 3.指定渲染流程如何提供绘制指令的标记
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        // 绑定图形管线
-        // 2.指定管线对象是图形管线还是计算管线
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
-
         VkViewport viewport = {};
         viewport.x          = 0.f;
         viewport.y          = 0.f;
@@ -1133,25 +1314,25 @@ private:
         viewport.height     = static_cast<float>(m_swapChainExtent.height);
         viewport.minDepth   = 0.f;
         viewport.maxDepth   = 1.f;
-
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor = {};
         scissor.offset   = { 0, 0 };
         scissor.extent   = m_swapChainExtent;
-
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         VkDeviceSize offsets[] = { 0 };
 
         //-------------------------------------------------------------------------------
-        // 绘制第一个三角形
+        // 小矩形，设置不通过模板测试，所以并不会显示出来
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipelineSmall);
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         //-------------------------------------------------------------------------------
-        // 绘制第二个三角形，因为和第一个三角形的索引缓冲一样，所以可以用同一个索引
+        // 大矩形，小矩形所在的区域不通过模板测试，所以只显示外边的一个框
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipelineLarge);
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer2, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
@@ -1656,7 +1837,7 @@ private:
         CreateImage(m_swapChainExtent.width, m_swapChainExtent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_depthImage, m_depthImageMemory);
 
-        m_depthImageView = CreateImageView(m_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+        m_depthImageView = CreateImageView(m_depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
 
         // TransitionImageLayout(m_depthImage, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
@@ -1694,8 +1875,8 @@ private:
     /// @return
     VkFormat FindDepthFormat() const
     {
-        return FindSupportedFormat({ VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT }, VK_IMAGE_TILING_OPTIMAL,
-            VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        // 模板测试需要使用的格式为：VK_FORMAT_D32_SFLOAT_S8_UINT
+        return FindSupportedFormat({ VK_FORMAT_D32_SFLOAT_S8_UINT }, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
     }
 
 private:
@@ -1791,8 +1972,13 @@ private:
     VkExtent2D m_swapChainExtent {};
     std::vector<VkImageView> m_swapChainImageViews {};
     VkRenderPass m_renderPass { nullptr };
-    VkPipelineLayout m_pipelineLayout { nullptr };
-    VkPipeline m_graphicsPipeline { nullptr };
+
+    VkPipelineLayout m_pipelineLayoutSmall { nullptr };
+    VkPipelineLayout m_pipelineLayoutLarge { nullptr };
+
+    VkPipeline m_graphicsPipelineSmall { nullptr };
+    VkPipeline m_graphicsPipelineLarge { nullptr };
+
     std::vector<VkFramebuffer> m_swapChainFramebuffers {};
     VkCommandPool m_commandPool { nullptr };
     std::vector<VkCommandBuffer> m_commandBuffers {};
