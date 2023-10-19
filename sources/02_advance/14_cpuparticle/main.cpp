@@ -87,7 +87,7 @@ struct SwapChainSupportDetails
 };
 
 // clang-format off
-const std::vector<Vertex> vertices  {
+std::vector<Vertex> vertices  {
     {{-0.5f, -0.8f}, {1.f, 0.f, 0.f}},
     {{-0.3f, -0.8f}, {1.f, 0.f, 0.f}},
     {{-0.1f, -0.8f}, {1.f, 1.f, 0.f}},
@@ -1126,6 +1126,23 @@ private:
         }
     }
 
+    /// @brief 更新粒子位置
+    void UpdateParticles()
+    {
+        float offset { .001f };
+        for (auto& v : vertices)
+        {
+            if (v.pos.y > 0.8)
+            {
+                v.pos.y = -0.8f;
+            }
+
+            v.pos.y += offset;
+        }
+
+        std::memcpy(m_vertexBuffersMapped, vertices.data(), static_cast<size_t>(m_bufferSize));
+    }
+
     /// @brief 绘制每一帧
     /// @details 流程：从交换链获取一张图像、对帧缓冲附着执行指令缓冲中的渲染指令、返回渲染后的图像到交换链进行呈现操作
     void DrawFrame()
@@ -1153,6 +1170,8 @@ private:
         {
             throw std::runtime_error("failed to acquire swap chain image");
         }
+
+        UpdateParticles();
 
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
@@ -1291,37 +1310,13 @@ private:
     /// @brief 创建顶点缓冲
     void CreateVertexBuffer()
     {
-        VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+        m_bufferSize = sizeof(Vertex) * vertices.size();
 
-        // 为了提升性能，使用一个临时（暂存）缓冲，先将顶点数据加载到临时缓冲，再复制到顶点缓冲
-        VkBuffer stagingBuffer {};
-        VkDeviceMemory stagingBufferMemory {};
-
-        // 创建一个CPU可见的缓冲作为临时缓冲
-        // VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 用于从CPU写入数据
-        // VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 可以保证数据被立即复制到缓冲关联的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        void* data { nullptr };
-        // 将缓冲关联的内存映射到CPU可以访问的内存
-        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        // 将顶点数据复制到映射后的内存
-        std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-        // 结束内存映射
-        vkUnmapMemory(m_device, stagingBufferMemory);
-
-        // 创建一个显卡读取较快的缓冲作为真正的顶点缓冲
-        // 具有 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 标记的内存最适合显卡读取，CPU通常不能访问这种类型的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        CreateBuffer(m_bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             m_vertexBuffer, m_vertexBufferMemory);
 
-        // m_vertexBuffer 现在关联的内存是设备所有的（显卡），不能使用 vkMapMemory 函数对它关联的内存进行映射
-        // 从临时（暂存）缓冲复制数据到显卡读取较快的缓冲中
-        CopyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+        vkMapMemory(m_device, m_vertexBufferMemory, 0, m_bufferSize, 0, &m_vertexBuffersMapped);
+        std::memcpy(m_vertexBuffersMapped, vertices.data(), static_cast<size_t>(m_bufferSize));
 
         // 驱动程序可能并不会立即复制数据到缓冲关联的内存中去，因为处理器都有缓存，写入内存的数据并不一定在多个核心同时可见
         // 保证数据被立即复制到缓冲关联的内存可以使用以下函数，或者使用 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 属性的内存类型
@@ -1566,6 +1561,8 @@ private:
     bool m_framebufferResized { false };
     VkBuffer m_vertexBuffer { nullptr };
     VkDeviceMemory m_vertexBufferMemory { nullptr };
+    void* m_vertexBuffersMapped { nullptr };
+    VkDeviceSize m_bufferSize { 0 };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
 };
