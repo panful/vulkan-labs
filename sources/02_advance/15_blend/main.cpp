@@ -88,15 +88,15 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices {
-    {{-0.5f,  0.5f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
-    {{ 0.3f,  0.5f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
-    {{-0.1f, -0.5f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
+    {{-0.5f,  0.5f, 0.f}, {1.f, 0.f, 0.f, .5f}},
+    {{ 0.3f,  0.5f, 0.f}, {1.f, 0.f, 0.f, .5f}},
+    {{-0.1f, -0.5f, 0.f}, {1.f, 0.f, 0.f, .5f}},
 };
 
 const std::vector<Vertex> vertices2 {
-    {{-0.3f,  0.5f, 0.f}, {0.f, 1.f, 0.f, 1.f}},
-    {{ 0.5f,  0.5f, 0.f}, {0.f, 1.f, 0.f, 1.f}},
-    {{ 0.1f, -0.5f, 0.f}, {0.f, 1.f, 0.f, 1.f}},
+    {{-0.3f,  0.5f, 0.f}, {0.f, 1.f, 0.f, .5f}},
+    {{ 0.5f,  0.5f, 0.f}, {0.f, 1.f, 0.f, .5f}},
+    {{ 0.1f, -0.5f, 0.f}, {0.f, 1.f, 0.f, .5f}},
 };
 
 const std::vector<uint16_t> indices{
@@ -864,7 +864,13 @@ private:
         VkPipelineColorBlendAttachmentState colorBlendAttachment {};
         colorBlendAttachment.colorWriteMask
             = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttachment.blendEnable = VK_FALSE;
+        colorBlendAttachment.blendEnable         = VK_TRUE;
+        colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+        colorBlendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 
         VkPipelineColorBlendStateCreateInfo colorBlending {};
         colorBlending.sType             = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -1067,7 +1073,7 @@ private:
         }
 
         // 清除色，相当于背景色
-        VkClearValue clearColor = { { { .1f, .2f, .3f, 1.f } } };
+        VkClearValue clearColor = { { { 0.f, 0.f, 0.f, 0.f } } };
 
         VkRenderPassBeginInfo renderPassInfo = {};
         renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
