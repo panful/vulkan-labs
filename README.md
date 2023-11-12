@@ -315,3 +315,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 15_blend
 颜色混合的基本使用。`VkPipelineColorBlendAttachmentState`的`blendEnable`设置为`VK_TRUE`并设置正确的混合方式即可。`VkPipelineColorBlendStateCreateInfo`可以对所有的帧缓存都设置颜色混合，如果将`logicOpEnable`设置为`VK_TRUE`，那么`VkPipelineColorBlendAttachmentState`设置的混合方式将失效。
 - 16_transform
+通过设置GLFW的事件回调函数，当指定操作执行时，设置View矩阵的参数(eyepos,lookat,viewup)

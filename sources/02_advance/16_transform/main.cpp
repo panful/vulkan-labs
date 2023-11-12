@@ -146,6 +146,10 @@ private:
 
         glfwSetWindowUserPointer(m_window, this);
         glfwSetFramebufferSizeCallback(m_window, FramebufferResizeCallback);
+        glfwSetKeyCallback(m_window, KeyCallback);
+        glfwSetCursorPosCallback(m_window, CursorPosCallback);
+        glfwSetScrollCallback(m_window, ScrollCallback);
+        glfwSetMouseButtonCallback(m_window, MouseButtonCallback);
     }
 
     void InitVulkan()
@@ -1615,8 +1619,8 @@ private:
         auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
 
         UniformBufferObject ubo {};
-        ubo.model = glm::rotate(glm::mat4(1.f), time * glm::radians(90.f), glm::vec3(1.f, 1.f, 0.f));
-        ubo.view  = glm::lookAt(glm::vec3(0.f, 0.f, -3.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
+        ubo.model = glm::mat4(1.f);
+        ubo.view  = glm::lookAt(m_eyePos, m_lookAt, m_viewUp);
         ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
 
         // glm的裁剪坐标的Y轴和 Vulkan 是相反的
@@ -1863,8 +1867,83 @@ private:
 
     static void FramebufferResizeCallback(GLFWwindow* window, int widht, int height) noexcept
     {
-        auto app                  = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
-        app->m_framebufferResized = true;
+        if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
+        {
+            app->m_framebufferResized = true;
+        }
+    }
+
+    /// @brief 光标位置回调
+    /// @param window
+    /// @param xpos
+    /// @param ypos
+    static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos) noexcept
+    {
+        if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
+        {
+            // app->m_lookAt;
+            // app->m_eyePos;
+            // app->m_viewUp;
+        }
+    }
+
+    /// @brief 鼠标滚轮滚动回调
+    /// @param window
+    /// @param xoffset
+    /// @param yoffset 小于0向前滚动，大于0向后滚动
+    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept
+    {
+        if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
+        {
+            if (yoffset < 0.0)
+            {
+                app->m_eyePos *= 0.9f; // 向前滚动缩小
+            }
+            else if (yoffset > 0.0)
+            {
+                app->m_eyePos *= 1.1f; // 向后滚动放大
+            }
+        }
+    }
+
+    /// @brief 鼠标按钮操作回调
+    /// @param window
+    /// @param button
+    /// @param action
+    /// @param mods
+    static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods) noexcept
+    {
+        if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
+        {
+            glm::mat4 tmpMat(1.f);
+            if (GLFW_PRESS == action && GLFW_MOUSE_BUTTON_RIGHT == button)
+            {
+                // 右键按下绕y轴顺时针旋转5度
+                tmpMat = glm::rotate(glm::mat4(1.f), glm::radians(5.f), glm::vec3(0.f, 1.f, 0.f));
+            }
+
+            app->m_eyePos = glm::vec3(tmpMat * glm::vec4(app->m_eyePos, 1.f));
+        }
+    }
+
+    /// @brief 键盘操作回调
+    /// @param window
+    /// @param key
+    /// @param scancode
+    /// @param action
+    /// @param mods
+    static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) noexcept
+    {
+        if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
+        {
+            // 按下'r'/'R'恢复视角
+            if (GLFW_PRESS == action && GLFW_KEY_R == key)
+            {
+                app->m_viewUp = glm::vec3 { 0.f, 1.f, 0.f };
+                app->m_eyePos = glm::vec3 { 0.f, 0.f, -3.f };
+                app->m_lookAt = glm::vec3 { 0.f };
+            }
+        }
     }
 
 private:
@@ -1905,6 +1984,10 @@ private:
     VkImage m_depthImage { nullptr };
     VkDeviceMemory m_depthImageMemory { nullptr };
     VkImageView m_depthImageView { nullptr };
+
+    glm::vec3 m_viewUp { 0.f, 1.f, 0.f };
+    glm::vec3 m_eyePos { 0.f, 0.f, -3.f };
+    glm::vec3 m_lookAt { 0.f };
 };
 
 int main()
