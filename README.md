@@ -264,7 +264,7 @@ vkEndCommandBuffer()
 - 04_textureMapping
     纹理的使用
 - 05_depthBuffering
-    开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。Z值越大，距离眼睛越远。
+    开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。Z值越大，距离眼睛越远。**注意**：如果开启了背面剔除，不开启深度测试和开启深度测试时绘制的图像看起来可能是一样的。
 - 06_loadingModels
     加载一个模型，使用纹理、开启深度测试、传递MVP矩阵
 - 07_generatingMipmaps
@@ -312,3 +312,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 **注意**：开启模板测试，使用的深度模板图像格式需要为：`VK_FORMAT_D32_SFLOAT_S8_UINT`，`VkImageViewCreateInfo.subresourceRange.aspectMask`的值需要设置为：`VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT`，将`VkPipelineDepthStencilStateCreateInfo`的信息添加上模板测试的参数`VkStencilOpState`即可使用模板测试。
 - 14_cpuparticle
 基于CPU的粒子系统。点的大小在顶点着色器中设置`gl_PointSize = 10.0;` CPU粒子系统就是使用CPU更新粒子的属性，要想在CPU端更新粒子Buffer，就需要在创建粒子Buffer时设置正确的Buffer属性`VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`，或者在每次更新Buffer后，显示刷新数据到GPU
+- 15_blend
+颜色混合的基本使用。`VkPipelineColorBlendAttachmentState`的`blendEnable`设置为`VK_TRUE`并设置正确的混合方式即可。`VkPipelineColorBlendStateCreateInfo`可以对所有的帧缓存都设置颜色混合，如果将`logicOpEnable`设置为`VK_TRUE`，那么`VkPipelineColorBlendAttachmentState`设置的混合方式将失效。
+- 16_transform
