@@ -6,11 +6,14 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // 透视矩阵深度值范围 [-1, 1] => [0, 1]
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <numbers>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -1881,9 +1884,47 @@ private:
     {
         if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
         {
-            // app->m_lookAt;
-            // app->m_eyePos;
-            // app->m_viewUp;
+            // 计算鼠标移动的偏移量
+            double xOffset = xpos - app->m_mouseLastX;
+            double yOffset = ypos - app->m_mouseLastY;
+
+            if (app->m_isRotating)
+            {
+                // 设置灵敏度，可以根据需要调整
+                constexpr auto sensitivity = 0.5 / 180.0 * std::numbers::pi_v<double>;
+                xOffset *= sensitivity;
+                yOffset *= sensitivity;
+
+                // 构造旋转四元数
+                glm::vec3 xAxis        = glm::normalize(glm::cross(app->m_viewUp, app->m_eyePos));
+                glm::vec3 yAxis        = glm::normalize(app->m_viewUp);
+                glm::quat xRotation    = glm::angleAxis(static_cast<float>(-yOffset), xAxis);
+                glm::quat yRotation    = glm::angleAxis(static_cast<float>(-xOffset), yAxis);
+                glm::quat rotationQuat = xRotation * yRotation;
+
+                app->m_eyePos = glm::vec3(glm::mat4(rotationQuat) * glm::vec4(app->m_eyePos, 1.f));
+                app->m_viewUp = glm::vec3(glm::mat4(rotationQuat) * glm::vec4(app->m_viewUp, 1.f));
+                // app->m_viewUp = glm::normalize(glm::cross(xAxis, -app->m_eyePos));
+            }
+
+            if (app->m_isTranslating)
+            {
+                xOffset /= (app->m_swapChainExtent.width / 2);
+                yOffset /= (app->m_swapChainExtent.height / 2);
+
+                glm::vec3 xAxis        = glm::normalize(glm::cross(app->m_viewUp, app->m_eyePos));
+                glm::vec3 yAxis        = glm::normalize(app->m_viewUp);
+                glm::mat4 xTranslation = glm::translate(glm::mat4(1.f), xAxis * static_cast<float>(-xOffset));
+                glm::mat4 yTranslation = glm::translate(glm::mat4(1.f), yAxis * static_cast<float>(yOffset));
+                glm::mat4 translation  = xTranslation * yTranslation;
+
+                app->m_eyePos = glm::vec3(translation * glm::vec4(app->m_eyePos, 1.f));
+                app->m_lookAt = glm::vec3(translation * glm::vec4(app->m_lookAt, 1.f));
+            }
+
+            // 更新上一次的鼠标位置
+            app->m_mouseLastX = xpos;
+            app->m_mouseLastY = ypos;
         }
     }
 
@@ -1895,13 +1936,19 @@ private:
     {
         if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
         {
+            glm::vec3 direction = glm::normalize(app->m_eyePos - app->m_lookAt);
+            float distance      = glm::distance(app->m_eyePos, app->m_lookAt);
+            glm::vec3 translate = direction * distance * 0.1f;
+
             if (yoffset < 0.0)
             {
-                app->m_eyePos *= 0.9f; // 向前滚动缩小
+                glm::mat4 mat = glm::translate(glm::mat4(1.f), translate);
+                app->m_eyePos = glm::vec3(mat * glm::vec4(app->m_eyePos, 1.f));
             }
             else if (yoffset > 0.0)
             {
-                app->m_eyePos *= 1.1f; // 向后滚动放大
+                glm::mat4 mat = glm::translate(glm::mat4(1.f), translate * -1.f);
+                app->m_eyePos = glm::vec3(mat * glm::vec4(app->m_eyePos, 1.f));
             }
         }
     }
@@ -1915,14 +1962,25 @@ private:
     {
         if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
         {
-            glm::mat4 tmpMat(1.f);
             if (GLFW_PRESS == action && GLFW_MOUSE_BUTTON_RIGHT == button)
             {
-                // 右键按下绕y轴顺时针旋转5度
-                tmpMat = glm::rotate(glm::mat4(1.f), glm::radians(5.f), glm::vec3(0.f, 1.f, 0.f));
+                app->m_isRotating = true;
+                glfwGetCursorPos(window, &app->m_mouseLastX, &app->m_mouseLastY);
+            }
+            else if (GLFW_RELEASE == action && GLFW_MOUSE_BUTTON_RIGHT == button)
+            {
+                app->m_isRotating = false;
             }
 
-            app->m_eyePos = glm::vec3(tmpMat * glm::vec4(app->m_eyePos, 1.f));
+            if (GLFW_PRESS == action && GLFW_MOUSE_BUTTON_LEFT == button)
+            {
+                app->m_isTranslating = true;
+                glfwGetCursorPos(window, &app->m_mouseLastX, &app->m_mouseLastY);
+            }
+            else if (GLFW_RELEASE == action && GLFW_MOUSE_BUTTON_LEFT == button)
+            {
+                app->m_isTranslating = false;
+            }
         }
     }
 
@@ -1988,6 +2046,10 @@ private:
     glm::vec3 m_viewUp { 0.f, 1.f, 0.f };
     glm::vec3 m_eyePos { 0.f, 0.f, -3.f };
     glm::vec3 m_lookAt { 0.f };
+    double m_mouseLastX { 0.0 };
+    double m_mouseLastY { 0.0 };
+    bool m_isRotating { false };
+    bool m_isTranslating { false };
 };
 
 int main()
