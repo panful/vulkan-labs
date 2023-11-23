@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 // 窗口默认大小
@@ -31,6 +32,22 @@ const bool g_enableValidationLayers = false;
 #else
 const bool g_enableValidationLayers = true;
 #endif // NDEBUG
+
+struct DrawableData
+{
+    VkBuffer vertexBuffer { nullptr };
+    VkDeviceMemory vertexBufferMemory { nullptr };
+    VkBuffer indexBuffer { nullptr };
+    VkDeviceMemory indexBufferMemory { nullptr };
+    uint32_t indexCount { 0 };
+};
+
+/// @brief 每个线程执行的辅助commandBuffer
+struct ThreadData
+{
+    VkCommandPool commandPool {};
+    VkCommandBuffer commandBuffer;
+};
 
 struct Vertex
 {
@@ -87,13 +104,13 @@ struct SwapChainSupportDetails
 };
 
 // clang-format off
-const std::vector<Vertex> vertices {
+const std::vector<Vertex> vertices0 {
     {{-0.8f,  0.8f}, {1.f, 0.f, 0.f}},
     {{-0.2f,  0.8f}, {1.f, 0.f, 0.f}},
     {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
 };
 
-const std::vector<Vertex> vertices2 {
+const std::vector<Vertex> vertices1 {
     {{ 0.2f,  0.8f}, {0.f, 1.f, 0.f}},
     {{ 0.8f,  0.8f}, {0.f, 1.f, 0.f}},
     {{ 0.8f, -0.5f}, {0.f, 1.f, 0.f}},
@@ -146,11 +163,9 @@ private:
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
-        CreateVertexBuffer();
-        CreateIndexBuffer();
-        CreateVertexBuffer2();
-        CreateIndexBuffer2();
+        CreateDrawables();
         CreateCommandBuffers();
+        CreateSecondaryCommandBuffer();
         CreateSyncObjects();
     }
 
@@ -171,15 +186,13 @@ private:
     {
         CleanupSwapChain();
 
-        vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
-        vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
-        vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
-        vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
-
-        vkDestroyBuffer(m_device, m_vertexBuffer2, nullptr);
-        vkFreeMemory(m_device, m_vertexBufferMemory2, nullptr);
-        vkDestroyBuffer(m_device, m_indexBuffer2, nullptr);
-        vkFreeMemory(m_device, m_indexBufferMemory2, nullptr);
+        for (auto& drawable : m_drawables)
+        {
+            vkDestroyBuffer(m_device, drawable.vertexBuffer, nullptr);
+            vkFreeMemory(m_device, drawable.vertexBufferMemory, nullptr);
+            vkDestroyBuffer(m_device, drawable.indexBuffer, nullptr);
+            vkFreeMemory(m_device, drawable.indexBufferMemory, nullptr);
+        }
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -190,6 +203,14 @@ private:
             vkDestroySemaphore(m_device, m_imageAvailableSemaphores.at(i), nullptr);
             vkDestroySemaphore(m_device, m_renderFinishedSemaphores.at(i), nullptr);
             vkDestroyFence(m_device, m_inFlightFences.at(i), nullptr);
+        }
+
+        for (auto& threadData : m_threadDatas)
+        {
+            for (auto& perThread : threadData)
+            {
+                vkDestroyCommandPool(m_device, perThread.commandPool, nullptr);
+            }
         }
 
         vkDestroyCommandPool(m_device, m_commandPool, nullptr);
@@ -753,7 +774,7 @@ private:
             VkImageViewCreateInfo createInfo           = {};
             createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image                           = m_swapChainImages.at(i);
-            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;         // 1d 2d 3d cube纹理
+            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D; // 1d 2d 3d cube纹理
             createInfo.format                          = m_swapChainImageFormat;
             createInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY; // 图像颜色通过的映射
             createInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -967,7 +988,7 @@ private:
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
         subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
+        subpass.pColorAttachments    = &colorAttachmentRef; // 指定颜色附着
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
@@ -1053,41 +1074,61 @@ private:
         }
     }
 
-    /// @brief 记录指令到指令缓冲
-    void RecordCommandBuffer(const VkCommandBuffer commandBuffer, const VkFramebuffer framebuffer) const
+    /// @brief 为交换链中的每一个主要cmdBuffer创建辅助cmdBuffer
+    void CreateSecondaryCommandBuffer()
     {
-        VkCommandBufferBeginInfo beginInfo = {};
-        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // 指定怎样使用指令缓冲
-        beginInfo.pInheritanceInfo         = nullptr; // 只用于辅助指令缓冲，指定从调用它的主要指令缓冲继承的状态
+        auto indices = FindQueueFamilies(m_physicalDevice);
 
-        if (VK_SUCCESS != vkBeginCommandBuffer(commandBuffer, &beginInfo))
+        m_threadDatas.resize(m_commandBuffers.size()); // 每个交换链都有一个commandbuffer（主要commandbuffer）
+        for (auto& threadData : m_threadDatas)
+        {
+            threadData.resize(2); // 两个线程，每个线程绘制一个三角形
+            for (auto& perThread : threadData)
+            {
+                VkCommandPoolCreateInfo poolInfo = {};
+                poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+                poolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+                poolInfo.queueFamilyIndex        = indices.graphicsFamily.value();
+
+                if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &perThread.commandPool))
+                {
+                    throw std::runtime_error("failed to create command pool");
+                }
+
+                VkCommandBufferAllocateInfo allocInfo = {};
+                allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                allocInfo.commandPool                 = perThread.commandPool;
+                allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_SECONDARY; // 指定是主要还是辅助指令缓冲对象
+                allocInfo.commandBufferCount          = 1;
+
+                if (VK_SUCCESS != vkAllocateCommandBuffers(m_device, &allocInfo, &perThread.commandBuffer))
+                {
+                    throw std::runtime_error("failed to allocate command buffers");
+                }
+            }
+        }
+    }
+
+    /// @brief 线程执行的任务
+    /// @param threadId
+    /// @param primCmdBufferId 主要commandBuffer的id
+    /// @param drawableId  绘制对象的id
+    /// @param inheritanceInfo 指定辅助cmdBuf从主要cmdBuf继承的状态
+    void ThreadRender(size_t threadId, size_t primCmdBufferId, size_t drawableId, VkCommandBufferInheritanceInfo inheritanceInfo) const
+    {
+        VkCommandBuffer commandBuffer = m_threadDatas[primCmdBufferId][threadId].commandBuffer;
+        VkFramebuffer framebuffer     = m_swapChainFramebuffers[primCmdBufferId];
+
+        VkCommandBufferBeginInfo commandBufferBeginInfo {};
+        commandBufferBeginInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        commandBufferBeginInfo.flags            = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+        commandBufferBeginInfo.pInheritanceInfo = &inheritanceInfo;
+
+        if (VK_SUCCESS != vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo))
         {
             throw std::runtime_error("failed to begin recording command buffer");
         }
 
-        // 清除色，相当于背景色
-        VkClearValue clearColor = { { { .1f, .2f, .3f, 1.f } } };
-
-        VkRenderPassBeginInfo renderPassInfo = {};
-        renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass            = m_renderPass; // 指定使用的渲染流程对象
-        renderPassInfo.framebuffer           = framebuffer;  // 指定使用的帧缓冲对象
-        renderPassInfo.renderArea.offset     = { 0, 0 };     // 指定用于渲染的区域
-        renderPassInfo.renderArea.extent     = m_swapChainExtent;
-        renderPassInfo.clearValueCount       = 1;            // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
-        renderPassInfo.pClearValues          = &clearColor;
-
-        // 所有可以记录指令到指令缓冲的函数，函数名都带有一个 vkCmd 前缀
-
-        // 开始一个渲染流程
-        // 1.用于记录指令的指令缓冲对象
-        // 2.使用的渲染流程的信息
-        // 3.指定渲染流程如何提供绘制指令的标记
-        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        // 绑定图形管线
-        // 2.指定管线对象是图形管线还是计算管线
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
         VkViewport viewport = {};
@@ -1097,34 +1138,67 @@ private:
         viewport.height     = static_cast<float>(m_swapChainExtent.height);
         viewport.minDepth   = 0.f;
         viewport.maxDepth   = 1.f;
-
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor = {};
         scissor.offset   = { 0, 0 };
         scissor.extent   = m_swapChainExtent;
-
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_drawables[drawableId].vertexBuffer, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, m_drawables[drawableId].indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(commandBuffer, m_drawables[drawableId].indexCount, 1, 0, 0, 0);
 
-        //-------------------------------------------------------------------------------
-        // 绘制第一个三角形
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-
-        //-------------------------------------------------------------------------------
-        // 绘制第二个三角形，因为和第一个三角形的索引缓冲一样，所以可以用同一个索引
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer2, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-
-        // 结束渲染流程
-        vkCmdEndRenderPass(commandBuffer);
-
-        // 结束记录指令到指令缓冲
         if (VK_SUCCESS != vkEndCommandBuffer(commandBuffer))
+        {
+            throw std::runtime_error("failed to record command buffer");
+        }
+    }
+
+    /// @brief 记录指令到指令缓冲
+    void RecordCommandBuffer(size_t swapChainId) const
+    {
+        // 此处不需要指定主要commandBuffer的用途
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        if (VK_SUCCESS != vkBeginCommandBuffer(m_commandBuffers[swapChainId], &beginInfo))
+        {
+            throw std::runtime_error("failed to begin recording command buffer");
+        }
+
+        VkClearValue clearColor              = { { { .1f, .2f, .3f, 1.f } } };
+        VkRenderPassBeginInfo renderPassInfo = {};
+        renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass            = m_renderPass;
+        renderPassInfo.framebuffer           = m_swapChainFramebuffers[swapChainId];
+        renderPassInfo.renderArea.offset     = { 0, 0 };
+        renderPassInfo.renderArea.extent     = m_swapChainExtent;
+        renderPassInfo.clearValueCount       = 1;
+        renderPassInfo.pClearValues          = &clearColor;
+
+        vkCmdBeginRenderPass(m_commandBuffers[swapChainId], &renderPassInfo, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+
+        // 辅助cmdBuf从主要cmdBuf继承的状态
+        VkCommandBufferInheritanceInfo inheritanceInfo {};
+        inheritanceInfo.sType       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+        inheritanceInfo.renderPass  = m_renderPass;
+        inheritanceInfo.framebuffer = m_swapChainFramebuffers[swapChainId];
+
+        // 多线程创建多个辅助commandBuffer，每个辅助cmdBuf负责绘制一个三角形
+        // 这里可以将两个任务放到线程池去执行，避免每帧都创建销毁线程
+        std::thread t1(&HelloTriangleApplication::ThreadRender, this, 0, swapChainId, 0, inheritanceInfo);
+        std::thread t2(&HelloTriangleApplication::ThreadRender, this, 1, swapChainId, 1, inheritanceInfo);
+        t1.join();
+        t2.join();
+
+        // 在主要cmdBuf中提交辅助cmdBuf
+        std::vector<VkCommandBuffer> commandBuffers { m_threadDatas[swapChainId][0].commandBuffer, m_threadDatas[swapChainId][1].commandBuffer };
+        vkCmdExecuteCommands(m_commandBuffers[swapChainId], static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+        vkCmdEndRenderPass(m_commandBuffers[swapChainId]);
+        if (VK_SUCCESS != vkEndCommandBuffer(m_commandBuffers[swapChainId]))
         {
             throw std::runtime_error("failed to record command buffer");
         }
@@ -1161,7 +1235,7 @@ private:
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
         vkResetCommandBuffer(m_commandBuffers.at(imageIndex), 0);
-        RecordCommandBuffer(m_commandBuffers.at(imageIndex), m_swapChainFramebuffers.at(imageIndex));
+        RecordCommandBuffer(imageIndex);
 
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1171,7 +1245,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1189,9 +1263,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1292,10 +1366,23 @@ private:
         createInfo.pUserData = nullptr;
     }
 
-    /// @brief 创建顶点缓冲
-    void CreateVertexBuffer()
+    void CreateDrawables()
     {
-        VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+        m_drawables.resize(2);
+
+        m_drawables[0].indexCount = static_cast<uint32_t>(indices.size());
+        CreateVertexBuffer(vertices0, m_drawables[0].vertexBuffer, m_drawables[0].vertexBufferMemory);
+        CreateIndexBuffer(indices, m_drawables[0].indexBuffer, m_drawables[0].indexBufferMemory);
+
+        m_drawables[1].indexCount = static_cast<uint32_t>(indices.size());
+        CreateVertexBuffer(vertices1, m_drawables[1].vertexBuffer, m_drawables[1].vertexBufferMemory);
+        CreateIndexBuffer(indices, m_drawables[1].indexBuffer, m_drawables[1].indexBufferMemory);
+    }
+
+    /// @brief 创建顶点缓冲
+    void CreateVertexBuffer(const std::vector<Vertex>& vert, VkBuffer& vertexBuffer, VkDeviceMemory& vertexBufferMemory)
+    {
+        VkDeviceSize bufferSize = sizeof(Vertex) * vert.size();
 
         // 为了提升性能，使用一个临时（暂存）缓冲，先将顶点数据加载到临时缓冲，再复制到顶点缓冲
         VkBuffer stagingBuffer {};
@@ -1311,18 +1398,18 @@ private:
         // 将缓冲关联的内存映射到CPU可以访问的内存
         vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
         // 将顶点数据复制到映射后的内存
-        std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
+        std::memcpy(data, vert.data(), static_cast<size_t>(bufferSize));
         // 结束内存映射
         vkUnmapMemory(m_device, stagingBufferMemory);
 
         // 创建一个显卡读取较快的缓冲作为真正的顶点缓冲
         // 具有 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 标记的内存最适合显卡读取，CPU通常不能访问这种类型的内存
         CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_vertexBuffer, m_vertexBufferMemory);
+            vertexBuffer, vertexBufferMemory);
 
         // m_vertexBuffer 现在关联的内存是设备所有的（显卡），不能使用 vkMapMemory 函数对它关联的内存进行映射
         // 从临时（暂存）缓冲复制数据到显卡读取较快的缓冲中
-        CopyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
+        CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
@@ -1335,9 +1422,9 @@ private:
     }
 
     /// @brief 创建索引缓冲
-    void CreateIndexBuffer()
+    void CreateIndexBuffer(const std::vector<uint16_t>& ind, VkBuffer& indexBuffer, VkDeviceMemory& indexBufferMemory)
     {
-        VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
+        VkDeviceSize bufferSize = sizeof(ind.front()) * ind.size();
 
         VkBuffer stagingBuffer {};
         VkDeviceMemory stagingBufferMemory {};
@@ -1347,80 +1434,13 @@ private:
 
         void* data { nullptr };
         vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
+        std::memcpy(data, ind.data(), static_cast<size_t>(bufferSize));
         vkUnmapMemory(m_device, stagingBufferMemory);
 
         CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_indexBuffer, m_indexBufferMemory);
+            indexBuffer, indexBufferMemory);
 
-        CopyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
-    }
-
-    /// @brief 创建顶点缓冲
-    void CreateVertexBuffer2()
-    {
-        VkDeviceSize bufferSize = sizeof(Vertex) * vertices2.size();
-
-        // 为了提升性能，使用一个临时（暂存）缓冲，先将顶点数据加载到临时缓冲，再复制到顶点缓冲
-        VkBuffer stagingBuffer {};
-        VkDeviceMemory stagingBufferMemory {};
-
-        // 创建一个CPU可见的缓冲作为临时缓冲
-        // VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 用于从CPU写入数据
-        // VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 可以保证数据被立即复制到缓冲关联的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        void* data { nullptr };
-        // 将缓冲关联的内存映射到CPU可以访问的内存
-        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        // 将顶点数据复制到映射后的内存
-        std::memcpy(data, vertices2.data(), static_cast<size_t>(bufferSize));
-        // 结束内存映射
-        vkUnmapMemory(m_device, stagingBufferMemory);
-
-        // 创建一个显卡读取较快的缓冲作为真正的顶点缓冲
-        // 具有 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 标记的内存最适合显卡读取，CPU通常不能访问这种类型的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_vertexBuffer2, m_vertexBufferMemory2);
-
-        // m_vertexBuffer 现在关联的内存是设备所有的（显卡），不能使用 vkMapMemory 函数对它关联的内存进行映射
-        // 从临时（暂存）缓冲复制数据到显卡读取较快的缓冲中
-        CopyBuffer(stagingBuffer, m_vertexBuffer2, bufferSize);
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
-
-        // 驱动程序可能并不会立即复制数据到缓冲关联的内存中去，因为处理器都有缓存，写入内存的数据并不一定在多个核心同时可见
-        // 保证数据被立即复制到缓冲关联的内存可以使用以下函数，或者使用 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 属性的内存类型
-        // 使用函数的方法性能更好
-        // 写入数据到映射的内存后，调用 vkFlushMappedMemoryRanges
-        // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
-    }
-
-    /// @brief 创建索引缓冲
-    void CreateIndexBuffer2()
-    {
-        VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
-
-        VkBuffer stagingBuffer {};
-        VkDeviceMemory stagingBufferMemory {};
-
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        void* data { nullptr };
-        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
-        vkUnmapMemory(m_device, stagingBufferMemory);
-
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_indexBuffer2, m_indexBufferMemory2);
-
-        CopyBuffer(stagingBuffer, m_indexBuffer2, bufferSize);
+        CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
@@ -1618,7 +1638,7 @@ private:
     VkDevice m_device { nullptr };
     VkQueue m_graphicsQueue { nullptr }; // 图形队列
     VkSurfaceKHR m_surface { nullptr };
-    VkQueue m_presentQueue { nullptr };  // 呈现队列
+    VkQueue m_presentQueue { nullptr }; // 呈现队列
     VkSwapchainKHR m_swapChain { nullptr };
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};
@@ -1636,15 +1656,8 @@ private:
     size_t m_currentFrame { 0 };
     bool m_framebufferResized { false };
 
-    VkBuffer m_vertexBuffer { nullptr };
-    VkDeviceMemory m_vertexBufferMemory { nullptr };
-    VkBuffer m_indexBuffer { nullptr };
-    VkDeviceMemory m_indexBufferMemory { nullptr };
-
-    VkBuffer m_vertexBuffer2 { nullptr };
-    VkDeviceMemory m_vertexBufferMemory2 { nullptr };
-    VkBuffer m_indexBuffer2 { nullptr };
-    VkDeviceMemory m_indexBufferMemory2 { nullptr };
+    std::vector<std::vector<ThreadData>> m_threadDatas {};
+    std::vector<DrawableData> m_drawables {};
 };
 
 int main()
