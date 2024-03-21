@@ -24,7 +24,9 @@ BraceWrapping:
   BeforeLambdaBody:         true
 
 # 尾随的注释对齐
-AlignTrailingComments: true
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2 # 尾随注释即使行不连续也对齐（没有注释的行不能超过2）
 
 # 每行最多字符数，0表示没有字符数限制
 ColumnLimit: 150
@@ -54,3 +56,6 @@ MaxEmptyLinesToKeep: 1
 
 # 宏的换行符左对齐
 AlignEscapedNewlines: Left
+
+# switch语句的case缩进
+IndentCaseLabels: true

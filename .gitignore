@@ -2,6 +2,5 @@
 /.vscode
 /build
 /out
-/target_debug
-/target_release
+/target
 /install
