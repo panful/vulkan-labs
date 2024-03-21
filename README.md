@@ -319,3 +319,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 17_multiThread
 多线程并行生成命令缓冲区。每一个交换链（每一帧）都有一个主要命令缓冲区(PRIMARY)，主要命令缓冲区可以有多个辅助(SECONDARY)命令缓冲区。将需要绘制的多个图元分配给多个辅助命令缓冲区，每个辅助命令缓冲区并行执行。
 - 18_instancing
+实例化多个相同的图形，和 OpenGL 使用方式基本一致，着色器变量有一点区别，Vulkan中使用`gl_InstanceIndex` OpenGL中使用`gl_InstanceID`

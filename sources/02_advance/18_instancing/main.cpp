@@ -1097,16 +1097,19 @@ private:
 
         VkBuffer vertexBuffers[] = { m_vertexBuffer };
         VkDeviceSize offsets[]   = { 0 };
+
         // 绑定顶点缓冲
-        // 2.偏移值
+        // 2.偏移值，可以将顶点数据设置为0，实例数据设置为1，两种数据分开提交
         // 3.顶点缓冲数量
         // 4.需要绑定的顶点缓冲数组
         // 5.顶点数据在顶点缓冲中的偏移值数组
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        // 绘制
-        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+        // 2.索引个数
+        // 3.实例的个数，没有使用实例渲染则设置为1
+        // 6.第一个实例的ID，着色器中 gl_InstanceIndex 起始的值
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 5, 0, 0, 0);
 
         // 提交绘制操作到指定缓冲
         // 2.顶点个数
