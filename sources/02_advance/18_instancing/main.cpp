@@ -1,6 +1,6 @@
 /**
  * 1. 简单使用 gl_InstanceIndex
- * 2. 
+ * 2. 给每个实例设置属性数据
  */
 
 #define TEST2
@@ -1634,6 +1634,9 @@ const bool g_enableValidationLayers = false;
 const bool g_enableValidationLayers = true;
 #endif // NDEBUG
 
+constexpr uint32_t VertexBufferBindID { 0 };
+constexpr uint32_t InstanceBufferBindID { 1 };
+
 struct Vertex
 {
     glm::vec2 pos { 0.f, 0.f };
@@ -1643,7 +1646,7 @@ struct Vertex
     {
         VkVertexInputBindingDescription bindingDescription {};
 
-        bindingDescription.binding   = 0;
+        bindingDescription.binding   = VertexBufferBindID;
         bindingDescription.stride    = sizeof(Vertex);
         bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
@@ -1654,15 +1657,49 @@ struct Vertex
     {
         std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
 
-        attributeDescriptions[0].binding  = 0;
+        attributeDescriptions[0].binding  = VertexBufferBindID;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
         attributeDescriptions[0].offset   = offsetof(Vertex, pos);
 
-        attributeDescriptions[1].binding  = 0;
+        attributeDescriptions[1].binding  = VertexBufferBindID;
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[1].offset   = offsetof(Vertex, color);
+
+        return attributeDescriptions;
+    }
+};
+
+struct InstanceData
+{
+    glm::vec3 color { 0.f, 0.f, 0.f };
+    glm::vec2 offset { 0.f, 0.f };
+
+    static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept
+    {
+        VkVertexInputBindingDescription bindingDescription {};
+
+        bindingDescription.binding   = InstanceBufferBindID;
+        bindingDescription.stride    = sizeof(InstanceData);
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+        return bindingDescription;
+    }
+
+    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
+    {
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
+
+        attributeDescriptions[0].binding  = InstanceBufferBindID;
+        attributeDescriptions[0].location = 2;
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[0].offset   = offsetof(InstanceData, color);
+
+        attributeDescriptions[1].binding  = InstanceBufferBindID;
+        attributeDescriptions[1].location = 3;
+        attributeDescriptions[1].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[1].offset   = offsetof(InstanceData, offset);
 
         return attributeDescriptions;
     }
@@ -1699,6 +1736,15 @@ const std::vector<Vertex> vertices  {
 const std::vector<uint16_t> indices{
     0, 1, 2,
     0, 2, 3,
+};
+
+const std::vector<InstanceData> instanceData {
+    { { 1.f, 0.f, 0.f }, { 0.0f, 0.f } },
+    { { 0.f, 1.f, 0.f }, { 0.3f, 0.f } },
+    { { 0.f, 0.f, 1.f }, { 0.6f, 0.f } },
+    { { 1.f, 1.f, 0.f }, { 0.9f, 0.f } },
+    { { 0.f, 1.f, 1.f }, { 1.2f, 0.f } },
+    { { 1.f, 0.f, 1.f }, { 1.5f, 0.f } },
 };
 
 // clang-format on
@@ -1745,6 +1791,7 @@ private:
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        CreateInstancingBuffer();
         CreateIndexBuffer();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -1769,6 +1816,8 @@ private:
 
         vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, m_instanceBuffer, nullptr);
+        vkFreeMemory(m_device, m_instanceBufferMemory, nullptr);
         vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
 
@@ -2367,8 +2416,8 @@ private:
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
     void CreateGraphicsPipeline()
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/02_18_base_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/02_18_base_frag.spv");
+        auto vertShaderCode = ReadFile("../resources/shaders/02_18_base2_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/02_18_base2_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -2387,14 +2436,15 @@ private:
         fragShaderStageInfo.pName                           = "main";
         fragShaderStageInfo.pSpecializationInfo             = nullptr;
 
-        auto bindingDescription    = Vertex::GetBindingDescription();
-        auto attributeDescriptions = Vertex::GetAttributeDescriptions();
+        std::vector bindingDescriptions { Vertex::GetBindingDescription(), InstanceData::GetBindingDescription() };
+        std::vector attributeDescriptions { Vertex::GetAttributeDescriptions()[0], Vertex::GetAttributeDescriptions()[1],
+            InstanceData::GetAttributeDescriptions()[0], InstanceData::GetAttributeDescriptions()[1] };
 
         // 顶点信息
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount        = 1;
-        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
+        vertexInputInfo.vertexBindingDescriptionCount        = static_cast<uint32_t>(bindingDescriptions.size());
+        vertexInputInfo.pVertexBindingDescriptions           = bindingDescriptions.data();
         vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
 
@@ -2697,21 +2747,23 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { m_vertexBuffer };
-        VkDeviceSize offsets[]   = { 0 };
+        VkBuffer vertexBuffers[]   = { m_vertexBuffer };
+        VkBuffer instanceBuffers[] = { m_instanceBuffer };
+        VkDeviceSize offsets[]     = { 0 };
 
         // 绑定顶点缓冲
         // 2.偏移值，可以将顶点数据设置为0，实例数据设置为1，两种数据分开提交
         // 3.顶点缓冲数量
         // 4.需要绑定的顶点缓冲数组
         // 5.顶点数据在顶点缓冲中的偏移值数组
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindVertexBuffers(commandBuffer, VertexBufferBindID, 1, vertexBuffers, offsets);
+        vkCmdBindVertexBuffers(commandBuffer, InstanceBufferBindID, 1, instanceBuffers, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
         // 2.索引个数
         // 3.实例的个数，没有使用实例渲染则设置为1
         // 6.第一个实例的ID，着色器中 gl_InstanceIndex 起始的值
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 5, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), static_cast<uint32_t>(instanceData.size()), 0, 0, 0);
 
         // 提交绘制操作到指定缓冲
         // 2.顶点个数
@@ -2932,6 +2984,31 @@ private:
         // 使用函数的方法性能更好
         // 写入数据到映射的内存后，调用 vkFlushMappedMemoryRanges
         // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
+    }
+
+    /// @brief 创建实例化数据缓冲
+    void CreateInstancingBuffer()
+    {
+        VkDeviceSize bufferSize = sizeof(InstanceData) * instanceData.size();
+
+        VkBuffer stagingBuffer {};
+        VkDeviceMemory stagingBufferMemory {};
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data { nullptr };
+        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        std::memcpy(data, instanceData.data(), static_cast<size_t>(bufferSize));
+        vkUnmapMemory(m_device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_instanceBuffer, m_instanceBufferMemory);
+
+        CopyBuffer(stagingBuffer, m_instanceBuffer, bufferSize);
+
+        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
     }
 
     /// @brief 创建索引缓冲
@@ -3170,6 +3247,8 @@ private:
     bool m_framebufferResized { false };
     VkBuffer m_vertexBuffer { nullptr };
     VkDeviceMemory m_vertexBufferMemory { nullptr };
+    VkBuffer m_instanceBuffer { nullptr };
+    VkDeviceMemory m_instanceBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
 };
