@@ -321,3 +321,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 18_instancing
 实例化多个相同的图形，和 OpenGL 使用方式基本一致，着色器变量有一点区别：Vulkan中使用`gl_InstanceIndex` OpenGL中使用`gl_InstanceID`。Vulkan 目前好像并不支持类似 OpenGL 函数`glVertexAttribDivisor`的功能：设置多少个实例数据更新一次属性数据，Vulkan 默认是每个实例都更新属性数据。
 - 19_indirectdraw
+间接绘制适用于处理大量动态数据的场景，不需要CPU提供顶点等数据就可以绘制（例如计算着色器生成的顶点数据，无需回传到CPU创建顶点缓冲就可以直接使用）

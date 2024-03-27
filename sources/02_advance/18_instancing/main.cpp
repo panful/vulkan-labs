@@ -1119,13 +1119,6 @@ private:
         // 6.第一个实例的ID，着色器中 gl_InstanceIndex 起始的值
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 5, 0, 0, 0);
 
-        // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
 
@@ -2764,13 +2757,6 @@ private:
         // 3.实例的个数，没有使用实例渲染则设置为1
         // 6.第一个实例的ID，着色器中 gl_InstanceIndex 起始的值
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), static_cast<uint32_t>(instanceData.size()), 0, 0, 0);
-
-        // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);

@@ -190,6 +190,7 @@ private:
         CreateCommandPool();
         CreateVertexBuffer();
         CreateInstancingBuffer();
+        CreateIndirectBuffer();
         CreateIndexBuffer();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -218,6 +219,8 @@ private:
         vkFreeMemory(m_device, m_instanceBufferMemory, nullptr);
         vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, m_indirectBuffer, nullptr);
+        vkFreeMemory(m_device, m_indirectBufferMemory, nullptr);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -429,15 +432,16 @@ private:
     /// @brief 检查显卡是否满足需求
     /// @param device
     /// @return
-    bool IsDeviceSuitable(const VkPhysicalDevice device) const noexcept
+    bool IsDeviceSuitable(const VkPhysicalDevice device) noexcept
     {
         // 获取基本的设置属性，name、type以及Vulkan版本等等
         // VkPhysicalDeviceProperties deviceProperties;
         // vkGetPhysicalDeviceProperties(device, &deviceProperties);
 
         // 获取对纹理的压缩、64位浮点数和多视图渲染等可选功能的支持
-        // VkPhysicalDeviceFeatures deviceFeatures;
-        // vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+        m_supportMultiDrawIndirect = deviceFeatures.multiDrawIndirect; // GPU是否支持多次间接绘制
 
         auto indices             = FindQueueFamilies(device);
         auto extensionsSupported = CheckDeviceExtensionSupported(device);
@@ -1158,17 +1162,23 @@ private:
         vkCmdBindVertexBuffers(commandBuffer, InstanceBufferBindID, 1, instanceBuffers, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-        // 2.索引个数
-        // 3.实例的个数，没有使用实例渲染则设置为1
-        // 6.第一个实例的ID，着色器中 gl_InstanceIndex 起始的值
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), static_cast<uint32_t>(instanceData.size()), 0, 0, 0);
-
-        // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        if (m_supportMultiDrawIndirect)
+        {
+            // 2. 包含绘制参数的缓冲区对象
+            // 3. 指向缓冲区中的一个位置，从这里开始读取第一组绘制参数
+            // 4. 绘制次数（多次间接绘制需要GPU支持）
+            // 5. 连续的绘制参数集之间的字节间隔
+            vkCmdDrawIndexedIndirect(
+                commandBuffer, m_indirectBuffer, 0, static_cast<uint32_t>(m_indirectCmd.size()), sizeof(VkDrawIndexedIndirectCommand));
+        }
+        else
+        {
+            for (size_t i = 0; i < m_indirectCmd.size(); ++i)
+            {
+                vkCmdDrawIndexedIndirect(
+                    commandBuffer, m_indirectBuffer, i * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
+            }
+        }
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
@@ -1382,6 +1392,40 @@ private:
         // 使用函数的方法性能更好
         // 写入数据到映射的内存后，调用 vkFlushMappedMemoryRanges
         // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
+    }
+
+    /// @brief 创建间接绘制命令缓冲
+    void CreateIndirectBuffer()
+    {
+        VkDrawIndexedIndirectCommand indirectCmd {};
+        indirectCmd.indexCount    = static_cast<uint32_t>(indices.size());      // 要绘制的顶点个数
+        indirectCmd.firstIndex    = 0;                                          // 开始的索引
+        indirectCmd.instanceCount = static_cast<uint32_t>(instanceData.size()); // 要绘制的实例个数
+        indirectCmd.firstInstance = 0;                                          // 要绘制的第一个实例的ID
+        indirectCmd.vertexOffset  = 0;                                          // 顶点偏移
+
+        m_indirectCmd.emplace_back(indirectCmd);
+
+        VkDeviceSize bufferSize = sizeof(VkDrawIndexedIndirectCommand) * m_indirectCmd.size();
+
+        VkBuffer stagingBuffer {};
+        VkDeviceMemory stagingBufferMemory {};
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory);
+
+        void* data { nullptr };
+        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        std::memcpy(data, m_indirectCmd.data(), static_cast<size_t>(bufferSize));
+        vkUnmapMemory(m_device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_indirectBuffer, m_indirectBufferMemory);
+
+        CopyBuffer(stagingBuffer, m_indirectBuffer, bufferSize);
+
+        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
+        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
     }
 
     /// @brief 创建实例化数据缓冲
@@ -1649,6 +1693,10 @@ private:
     VkDeviceMemory m_instanceBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
+    VkBuffer m_indirectBuffer { nullptr };
+    VkDeviceMemory m_indirectBufferMemory { nullptr };
+    std::vector<VkDrawIndexedIndirectCommand> m_indirectCmd {};
+    bool m_supportMultiDrawIndirect { false };
 };
 
 int main()

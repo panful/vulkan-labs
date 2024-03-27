@@ -1200,10 +1200,6 @@ private:
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
         // 绘制ImGui

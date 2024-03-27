@@ -1193,11 +1193,6 @@ private:
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets.at(m_currentFrame), 0, nullptr);
 
         // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         // 结束渲染流程

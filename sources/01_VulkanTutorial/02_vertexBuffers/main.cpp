@@ -1097,6 +1097,7 @@ private:
 
         VkBuffer vertexBuffers[] = { m_vertexBuffer };
         VkDeviceSize offsets[]   = { 0 };
+
         // 绑定顶点缓冲
         // 2.偏移值
         // 3.顶点缓冲数量
@@ -1104,16 +1105,14 @@ private:
         // 5.顶点数据在顶点缓冲中的偏移值数组
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        // 绘制
-        // vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-        // 提交绘制操作到指定缓冲
-        // 2.顶点个数
-        // 3.用于实例渲染，为1表示不进行实例渲染
-        // 4.用于定义着色器变量 gl_VertexIndex 的值
-        // 5.用于定义着色器变量 gl_InstanceIndex 的值
-        // vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        // 绘制
+        // 2. 索引个数
+        // 3. 实例个数，不使用实例化绘制时设置为1
+        // 4. 从索引缓冲区中开始读取索引的位置，假如设置为2，那么索引缓冲区的前2个索引都会被丢弃（不使用）
+        // 5. 索引的偏移量，给每个索引都加上这个偏移值，如果索引缓冲区的索引是{0,1,2}，偏移值是2，那么实际索引就是{2,3,4}
+        // 6. 实例的起始点 gl_InstanceIndex
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
