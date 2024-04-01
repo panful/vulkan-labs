@@ -9,6 +9,10 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -37,6 +41,15 @@ const bool g_enableValidationLayers = false;
 #else
 const bool g_enableValidationLayers = true;
 #endif // NDEBUG
+
+struct Drawable
+{
+    VkBuffer vertexBuffer { nullptr };
+    VkDeviceMemory vertexBufferMemory { nullptr };
+    VkBuffer indexBuffer { nullptr };
+    VkDeviceMemory indexBufferMemory { nullptr };
+    uint32_t indexCount { 0 };
+};
 
 struct Vertex
 {
@@ -100,7 +113,7 @@ struct SwapChainSupportDetails
 };
 
 // clang-format off
-const std::vector<Vertex> vertices  {
+const std::vector<Vertex> verticesCube {
     { { -0.5f,  0.5f, -0.5f }, { 1.f, 0.f, 0.f } },
     { {  0.5f,  0.5f, -0.5f }, { 1.f, 1.f, 0.f } },
     { {  0.5f, -0.5f, -0.5f }, { 0.f, 1.f, 0.f } },
@@ -112,7 +125,7 @@ const std::vector<Vertex> vertices  {
     { { -0.5f, -0.5f,  0.5f }, { 1.f, 1.f, 1.f } },
 };
 
-const std::vector<uint16_t> indices{
+const std::vector<uint16_t> indicesCube {
     0, 1, 2, 0, 2, 3, // 前
     1, 5, 6, 1, 6, 2, // 右
     5, 4, 7, 5, 7, 6, // 后
@@ -170,13 +183,15 @@ private:
         CreateCommandPool();
         CreateDepthResources();
         CreateFramebuffers();
-        CreateVertexBuffer();
-        CreateIndexBuffer();
+        CreateVertexBuffer(verticesCube, m_drawableCube);
+        CreateIndexBuffer(indicesCube, m_drawableCube);
         CreateUniformBuffers();
         CreateDescriptorPool();
+        CreateImGuiDescriptorPool();
         CreateDescriptorSets();
         CreateCommandBuffers();
         CreateSyncObjects();
+        InitImGui();
     }
 
     void MainLoop()
@@ -184,6 +199,7 @@ private:
         while (!glfwWindowShouldClose(m_window))
         {
             glfwPollEvents();
+            PrepareImGui();
             DrawFrame();
         }
 
@@ -192,18 +208,28 @@ private:
         vkDeviceWaitIdle(m_device);
     }
 
+    void DestroyDrawable(Drawable& drawable) noexcept
+    {
+        vkDestroyBuffer(m_device, drawable.vertexBuffer, nullptr);
+        vkFreeMemory(m_device, drawable.vertexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, drawable.indexBuffer, nullptr);
+        vkFreeMemory(m_device, drawable.indexBufferMemory, nullptr);
+    }
+
     void Cleanup() noexcept
     {
-        CleanupSwapChain();
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
 
-        vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
-        vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
-        vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
-        vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
+        CleanupSwapChain();
+        DestroyDrawable(m_drawableCube);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+
+        vkDestroyDescriptorPool(m_device, m_imguiDescriptorPool, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -237,6 +263,18 @@ private:
     }
 
 private:
+    /// @brief 添加需要渲染的GUI控件
+    void PrepareImGui()
+    {
+        ImGui::NewFrame();
+
+        ImGui::Begin("Display Infomation");
+        ImGui::Text("This is a simple GUI.");
+        ImGui::End();
+
+        ImGui::Render();
+    }
+
     /// @brief 创建 Vulkan 实例
     void CreateInstance()
     {
@@ -705,16 +743,16 @@ private:
 
         // 交换链中的图像数量，可以理解为队列的长度，指定运行时图像的最小数量
         // maxImageCount数值为0代表除了内存之外没有限制
-        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+        m_minImageCount = swapChainSupport.capabilities.minImageCount + 1;
+        if (swapChainSupport.capabilities.maxImageCount > 0 && m_minImageCount > swapChainSupport.capabilities.maxImageCount)
         {
-            imageCount = swapChainSupport.capabilities.maxImageCount;
+            m_minImageCount = swapChainSupport.capabilities.maxImageCount;
         }
 
         VkSwapchainCreateInfoKHR createInfo = {};
         createInfo.sType                    = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         createInfo.surface                  = m_surface;
-        createInfo.minImageCount            = imageCount;
+        createInfo.minImageCount            = m_minImageCount;
         createInfo.imageFormat              = surfaceFormat.format;
         createInfo.imageColorSpace          = surfaceFormat.colorSpace;
         createInfo.imageExtent              = extent;
@@ -763,9 +801,9 @@ private:
 
         // 获取交换链中图像，图像会在交换链销毁的同时自动清理
         // 之前给VkSwapchainCreateInfoKHR 设置了期望的图像数量，但是实际运行允许创建更多的图像数量，因此需要重新获取数量
-        vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, nullptr);
-        m_swapChainImages.resize(imageCount);
-        vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_swapChainImages.data());
+        vkGetSwapchainImagesKHR(m_device, m_swapChain, &m_minImageCount, nullptr);
+        m_swapChainImages.resize(m_minImageCount);
+        vkGetSwapchainImagesKHR(m_device, m_swapChain, &m_minImageCount, m_swapChainImages.data());
 
         m_swapChainImageFormat = surfaceFormat.format;
         m_swapChainExtent      = extent;
@@ -1078,6 +1116,52 @@ private:
         }
     }
 
+    /// @brief 初始化ImGui
+    void InitImGui()
+    {
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.DisplaySize = ImVec2((float)(WIDTH), (float)(HEIGHT));
+        io.Fonts->Build();
+
+        ImGui::StyleColorsDark();
+        ImGui_ImplGlfw_InitForVulkan(m_window, true);
+
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance                  = m_instance;
+        init_info.PhysicalDevice            = m_physicalDevice;
+        init_info.Device                    = m_device;
+        init_info.Queue                     = m_presentQueue;
+        init_info.DescriptorPool            = m_imguiDescriptorPool;
+        init_info.Subpass                   = 0;
+        init_info.MinImageCount             = m_minImageCount;
+        init_info.ImageCount                = m_minImageCount;
+        init_info.MSAASamples               = VK_SAMPLE_COUNT_1_BIT;
+
+        ImGui_ImplVulkan_Init(&init_info, m_renderPass);
+
+        vkResetCommandPool(m_device, m_commandPool, 0);
+
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(m_commandBuffers[m_currentFrame], &begin_info);
+
+        ImGui_ImplVulkan_CreateFontsTexture(m_commandBuffers[m_currentFrame]);
+
+        VkSubmitInfo end_info       = {};
+        end_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        end_info.commandBufferCount = 1;
+        end_info.pCommandBuffers    = &m_commandBuffers[m_currentFrame];
+        vkEndCommandBuffer(m_commandBuffers[m_currentFrame]);
+
+        vkQueueSubmit(m_graphicsQueue, 1, &end_info, VK_NULL_HANDLE);
+        vkDeviceWaitIdle(m_device);
+
+        ImGui_ImplVulkan_DestroyFontUploadObjects();
+    }
+
     /// @brief 创建指令池，用于管理指令缓冲对象使用的内存，并负责指令缓冲对象的分配
     void CreateCommandPool()
     {
@@ -1170,7 +1254,7 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { m_vertexBuffer };
+        VkBuffer vertexBuffers[] = { m_drawableCube.vertexBuffer };
         VkDeviceSize offsets[]   = { 0 };
         // 绑定顶点缓冲
         // 2.偏移值
@@ -1180,7 +1264,7 @@ private:
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         // 绑定索引缓冲
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, m_drawableCube.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
         // 为每个交换链图像绑定对应的描述符集
         // 2.指定绑定的是图形管线还是计算管线，因为描述符集并不是图形管线所独有的
@@ -1193,7 +1277,10 @@ private:
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets.at(m_currentFrame), 0, nullptr);
 
         // 提交绘制操作到指定缓冲
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, m_drawableCube.indexCount, 1, 0, 0, 0);
+
+        // 绘制ImGui
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
 
         // 结束渲染流程
         vkCmdEndRenderPass(commandBuffer);
@@ -1376,7 +1463,7 @@ private:
     }
 
     /// @brief 创建顶点缓冲
-    void CreateVertexBuffer()
+    void CreateVertexBuffer(const std::vector<Vertex>& vertices, Drawable& drawable)
     {
         VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
 
@@ -1401,11 +1488,11 @@ private:
         // 创建一个显卡读取较快的缓冲作为真正的顶点缓冲
         // 具有 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 标记的内存最适合显卡读取，CPU通常不能访问这种类型的内存
         CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_vertexBuffer, m_vertexBufferMemory);
+            drawable.vertexBuffer, drawable.vertexBufferMemory);
 
         // m_vertexBuffer 现在关联的内存是设备所有的（显卡），不能使用 vkMapMemory 函数对它关联的内存进行映射
         // 从临时（暂存）缓冲复制数据到显卡读取较快的缓冲中
-        CopyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
+        CopyBuffer(stagingBuffer, drawable.vertexBuffer, bufferSize);
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
@@ -1418,8 +1505,9 @@ private:
     }
 
     /// @brief 创建索引缓冲
-    void CreateIndexBuffer()
+    void CreateIndexBuffer(const std::vector<uint16_t>& indices, Drawable& drawable)
     {
+        drawable.indexCount     = static_cast<uint32_t>(indices.size());
         VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
 
         VkBuffer stagingBuffer {};
@@ -1434,9 +1522,9 @@ private:
         vkUnmapMemory(m_device, stagingBufferMemory);
 
         CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_indexBuffer, m_indexBufferMemory);
+            drawable.indexBuffer, drawable.indexBufferMemory);
 
-        CopyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
+        CopyBuffer(stagingBuffer, drawable.indexBuffer, bufferSize);
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
@@ -1791,6 +1879,37 @@ private:
             VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
     }
 
+    /// @brief 创建ImGui的描述符池
+    void CreateImGuiDescriptorPool()
+    {
+        // clang-format off
+        std::vector<VkDescriptorPoolSize> poolSizes {
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } 
+        };
+        // clang-format on
+
+        VkDescriptorPoolCreateInfo poolInfo = {};
+        poolInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        poolInfo.maxSets                    = 1000 * static_cast<uint32_t>(poolSizes.size());
+        poolInfo.poolSizeCount              = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes                 = poolSizes.data();
+        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_imguiDescriptorPool))
+        {
+            throw std::runtime_error("failed to create descriptor pool");
+        }
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -2024,10 +2143,7 @@ private:
     std::vector<VkFence> m_inFlightFences {};
     size_t m_currentFrame { 0 };
     bool m_framebufferResized { false };
-    VkBuffer m_vertexBuffer { nullptr };
-    VkDeviceMemory m_vertexBufferMemory { nullptr };
-    VkBuffer m_indexBuffer { nullptr };
-    VkDeviceMemory m_indexBufferMemory { nullptr };
+    Drawable m_drawableCube {};
     VkDescriptorSetLayout m_descriptorSetLayout { nullptr };
     std::vector<VkBuffer> m_uniformBuffers {};
     std::vector<VkDeviceMemory> m_uniformBuffersMemory {};
@@ -2045,6 +2161,9 @@ private:
     double m_mouseLastY { 0.0 };
     bool m_isRotating { false };
     bool m_isTranslating { false };
+
+    uint32_t m_minImageCount { 0 };
+    VkDescriptorPool m_imguiDescriptorPool { nullptr };
 };
 
 int main()
