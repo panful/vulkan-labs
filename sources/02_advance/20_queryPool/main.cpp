@@ -114,15 +114,15 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> verticesCube {
-    { { -0.5f,  0.5f, -0.5f }, { 1.f, 0.f, 0.f } },
-    { {  0.5f,  0.5f, -0.5f }, { 1.f, 1.f, 0.f } },
-    { {  0.5f, -0.5f, -0.5f }, { 0.f, 1.f, 0.f } },
-    { { -0.5f, -0.5f, -0.5f }, { 0.f, 1.f, 1.f } },
+    { {  0.2f,  0.5f, -0.5f }, { 1.f, 0.f, 0.f } },
+    { {  1.2f,  0.5f, -0.5f }, { 1.f, 1.f, 0.f } },
+    { {  1.2f, -0.5f, -0.5f }, { 0.f, 1.f, 0.f } },
+    { {  0.2f, -0.5f, -0.5f }, { 0.f, 1.f, 1.f } },
 
-    { { -0.5f,  0.5f,  0.5f }, { 0.f, 0.f, 1.f } },
-    { {  0.5f,  0.5f,  0.5f }, { 1.f, 0.f, 1.f } },
-    { {  0.5f, -0.5f,  0.5f }, { 0.f, 0.f, 0.f } },
-    { { -0.5f, -0.5f,  0.5f }, { 1.f, 1.f, 1.f } },
+    { {  0.2f,  0.5f,  0.5f }, { 0.f, 0.f, 1.f } },
+    { {  1.2f,  0.5f,  0.5f }, { 1.f, 0.f, 1.f } },
+    { {  1.2f, -0.5f,  0.5f }, { 0.f, 0.f, 0.f } },
+    { {  0.2f, -0.5f,  0.5f }, { 1.f, 1.f, 1.f } },
 };
 
 const std::vector<uint16_t> indicesCube {
@@ -134,6 +134,30 @@ const std::vector<uint16_t> indicesCube {
     4, 5, 1, 4, 1, 0, // 下
 };
 
+const std::vector<Vertex> verticesPlane {
+    { { 0.0f,  0.7f,  0.7f }, { 1.f, 1.f, 1.f } },
+    { { 0.0f,  0.7f, -0.7f }, { 1.f, 1.f, 1.f } },
+    { { 0.0f, -0.7f, -0.7f }, { 1.f, 1.f, 1.f } },
+    { { 0.0f, -0.7f,  0.7f }, { 1.f, 1.f, 1.f } },
+};
+
+const std::vector<uint16_t> indicesPlane {
+    0, 1, 2, 0, 2, 3
+};
+
+const std::vector<Vertex> verticesTetra {
+    { { -1.0f,  0.3f, -0.3f }, { 0.f, 1.f, 1.f } },
+    { { -0.2f,  0.3f, -0.3f }, { 1.f, 0.f, 1.f } },
+    { { -0.6f,  0.3f,  0.5f }, { 1.f, 1.f, 0.f } },
+    { { -0.6f, -0.5f,  0.0f }, { 1.f, 1.f, 1.f } },
+};
+
+const std::vector<uint16_t> indicesTetra {
+    0, 3, 3,
+    0, 1, 3,
+    1, 2, 3,
+    1, 2, 0,
+};
 // clang-format on
 
 class HelloTriangleApplication
@@ -185,6 +209,10 @@ private:
         CreateFramebuffers();
         CreateVertexBuffer(verticesCube, m_drawableCube);
         CreateIndexBuffer(indicesCube, m_drawableCube);
+        CreateVertexBuffer(verticesPlane, m_drawablePlane);
+        CreateIndexBuffer(indicesPlane, m_drawablePlane);
+        CreateVertexBuffer(verticesTetra, m_drawableTetra);
+        CreateIndexBuffer(indicesTetra, m_drawableTetra);
         CreateUniformBuffers();
         CreateDescriptorPool();
         CreateImGuiDescriptorPool();
@@ -224,6 +252,8 @@ private:
 
         CleanupSwapChain();
         DestroyDrawable(m_drawableCube);
+        DestroyDrawable(m_drawablePlane);
+        DestroyDrawable(m_drawableTetra);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -1254,30 +1284,28 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        VkBuffer vertexBuffers[] = { m_drawableCube.vertexBuffer };
-        VkDeviceSize offsets[]   = { 0 };
-        // 绑定顶点缓冲
-        // 2.偏移值
-        // 3.顶点缓冲数量
-        // 4.需要绑定的顶点缓冲数组
-        // 5.顶点数据在顶点缓冲中的偏移值数组
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-        // 绑定索引缓冲
-        vkCmdBindIndexBuffer(commandBuffer, m_drawableCube.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-
-        // 为每个交换链图像绑定对应的描述符集
-        // 2.指定绑定的是图形管线还是计算管线，因为描述符集并不是图形管线所独有的
-        // 3.描述符所使用的布局
-        // 4.描述符集的第一个元素索引
-        // 5.需要绑定的描述符集个数
-        // 6.用于绑定的描述符集数组
-        // 7.8.指定动态描述符的数组偏移
         vkCmdBindDescriptorSets(
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets.at(m_currentFrame), 0, nullptr);
 
-        // 提交绘制操作到指定缓冲
+        VkDeviceSize offsets[] = { 0 };
+
+        // 绘制立方体
+        VkBuffer vertexBuffersCube[] = { m_drawableCube.vertexBuffer };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersCube, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, m_drawableCube.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(commandBuffer, m_drawableCube.indexCount, 1, 0, 0, 0);
+
+        // 绘制平面
+        VkBuffer vertexBuffersPlane[] = { m_drawablePlane.vertexBuffer };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersPlane, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, m_drawablePlane.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(commandBuffer, m_drawablePlane.indexCount, 1, 0, 0, 0);
+
+        // 绘制四面体
+        VkBuffer vertexBuffersTetra[] = { m_drawableTetra.vertexBuffer };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersTetra, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, m_drawableTetra.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(commandBuffer, m_drawableTetra.indexCount, 1, 0, 0, 0);
 
         // 绘制ImGui
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -2144,6 +2172,8 @@ private:
     size_t m_currentFrame { 0 };
     bool m_framebufferResized { false };
     Drawable m_drawableCube {};
+    Drawable m_drawablePlane {};
+    Drawable m_drawableTetra {};
     VkDescriptorSetLayout m_descriptorSetLayout { nullptr };
     std::vector<VkBuffer> m_uniformBuffers {};
     std::vector<VkDeviceMemory> m_uniformBuffersMemory {};
