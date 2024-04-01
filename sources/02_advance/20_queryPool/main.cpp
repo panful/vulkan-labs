@@ -205,6 +205,7 @@ private:
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateCommandPool();
+        CreateQueryPool();
         CreateDepthResources();
         CreateFramebuffers();
         CreateVertexBuffer(verticesCube, m_drawableCube);
@@ -236,14 +237,6 @@ private:
         vkDeviceWaitIdle(m_device);
     }
 
-    void DestroyDrawable(Drawable& drawable) noexcept
-    {
-        vkDestroyBuffer(m_device, drawable.vertexBuffer, nullptr);
-        vkFreeMemory(m_device, drawable.vertexBufferMemory, nullptr);
-        vkDestroyBuffer(m_device, drawable.indexBuffer, nullptr);
-        vkFreeMemory(m_device, drawable.indexBufferMemory, nullptr);
-    }
-
     void Cleanup() noexcept
     {
         ImGui_ImplVulkan_Shutdown();
@@ -254,6 +247,8 @@ private:
         DestroyDrawable(m_drawableCube);
         DestroyDrawable(m_drawablePlane);
         DestroyDrawable(m_drawableTetra);
+
+        vkDestroyQueryPool(m_device, m_queryPool, nullptr);
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -299,7 +294,8 @@ private:
         ImGui::NewFrame();
 
         ImGui::Begin("Display Infomation");
-        ImGui::Text("This is a simple GUI.");
+        ImGui::Text("Cube passed samples: %llu", m_passedSamples[0]);
+        ImGui::Text("Tetra passed samples: %llu", m_passedSamples[1]);
         ImGui::End();
 
         ImGui::Render();
@@ -1192,6 +1188,28 @@ private:
         ImGui_ImplVulkan_DestroyFontUploadObjects();
     }
 
+    void GetQueryResult()
+    {
+        // 3. 初始查询索引，从这个索引开始读取结果
+        // 4. 要读取的查询数量
+        // 5. 缓冲区的大小（以字节为单位）
+        // 6. 存储结果的指针
+        // 7. 每个查询结果之间的字节跨度
+        // 8. 结果的返回方式和时机
+        vkGetQueryPoolResults(m_device, m_queryPool, 0, 2, sizeof(m_passedSamples), m_passedSamples.data(), sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    }
+
+    void CreateQueryPool()
+    {
+        VkQueryPoolCreateInfo queryPoolInfo = {};
+        queryPoolInfo.sType                 = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        queryPoolInfo.queryType             = VK_QUERY_TYPE_OCCLUSION; // 查询类型，包括：、管线统计、时间遮挡戳等
+        queryPoolInfo.queryCount            = 2;                       // 查询池中查询的数量
+
+        vkCreateQueryPool(m_device, &queryPoolInfo, nullptr, &m_queryPool);
+    }
+
     /// @brief 创建指令池，用于管理指令缓冲对象使用的内存，并负责指令缓冲对象的分配
     void CreateCommandPool()
     {
@@ -1258,6 +1276,9 @@ private:
 
         // 所有可以记录指令到指令缓冲的函数，函数名都带有一个 vkCmd 前缀
 
+        // 必须在 RenderPass 之外重置
+        vkCmdResetQueryPool(commandBuffer, m_queryPool, 0, 2);
+
         // 开始一个渲染流程
         // 1.用于记录指令的指令缓冲对象
         // 2.使用的渲染流程的信息
@@ -1289,23 +1310,31 @@ private:
 
         VkDeviceSize offsets[] = { 0 };
 
-        // 绘制立方体
-        VkBuffer vertexBuffersCube[] = { m_drawableCube.vertexBuffer };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersCube, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_drawableCube.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, m_drawableCube.indexCount, 1, 0, 0, 0);
-
         // 绘制平面
         VkBuffer vertexBuffersPlane[] = { m_drawablePlane.vertexBuffer };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersPlane, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_drawablePlane.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(commandBuffer, m_drawablePlane.indexCount, 1, 0, 0, 0);
 
-        // 绘制四面体
-        VkBuffer vertexBuffersTetra[] = { m_drawableTetra.vertexBuffer };
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersTetra, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_drawableTetra.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, m_drawableTetra.indexCount, 1, 0, 0, 0);
+        vkCmdBeginQuery(commandBuffer, m_queryPool, 0, 0);
+        {
+            // 绘制立方体
+            VkBuffer vertexBuffersCube[] = { m_drawableCube.vertexBuffer };
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersCube, offsets);
+            vkCmdBindIndexBuffer(commandBuffer, m_drawableCube.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(commandBuffer, m_drawableCube.indexCount, 1, 0, 0, 0);
+        }
+        vkCmdEndQuery(commandBuffer, m_queryPool, 0);
+
+        vkCmdBeginQuery(commandBuffer, m_queryPool, 1, 0);
+        {
+            // 绘制四面体
+            VkBuffer vertexBuffersTetra[] = { m_drawableTetra.vertexBuffer };
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersTetra, offsets);
+            vkCmdBindIndexBuffer(commandBuffer, m_drawableTetra.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(commandBuffer, m_drawableTetra.indexCount, 1, 0, 0, 0);
+        }
+        vkCmdEndQuery(commandBuffer, m_queryPool, 1);
 
         // 绘制ImGui
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -1376,6 +1405,8 @@ private:
         {
             throw std::runtime_error("failed to submit draw command buffer");
         }
+
+        GetQueryResult();
 
         VkPresentInfoKHR presentInfo   = {};
         presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1451,6 +1482,14 @@ private:
         CreateImageViews();
         CreateDepthResources();
         CreateFramebuffers();
+    }
+
+    void DestroyDrawable(Drawable& drawable) noexcept
+    {
+        vkDestroyBuffer(m_device, drawable.vertexBuffer, nullptr);
+        vkFreeMemory(m_device, drawable.vertexBufferMemory, nullptr);
+        vkDestroyBuffer(m_device, drawable.indexBuffer, nullptr);
+        vkFreeMemory(m_device, drawable.indexBufferMemory, nullptr);
     }
 
     /// @brief 清除交换链相关对象
@@ -2165,6 +2204,7 @@ private:
     VkPipeline m_graphicsPipeline { nullptr };
     std::vector<VkFramebuffer> m_swapChainFramebuffers {};
     VkCommandPool m_commandPool { nullptr };
+    VkQueryPool m_queryPool { nullptr };
     std::vector<VkCommandBuffer> m_commandBuffers {};
     std::vector<VkSemaphore> m_imageAvailableSemaphores {};
     std::vector<VkSemaphore> m_renderFinishedSemaphores {};
@@ -2184,6 +2224,7 @@ private:
     VkDeviceMemory m_depthImageMemory { nullptr };
     VkImageView m_depthImageView { nullptr };
 
+    std::array<uint64_t, 2> m_passedSamples {};
     glm::vec3 m_viewUp { 0.f, 1.f, 0.f };
     glm::vec3 m_eyePos { 0.f, 0.f, -3.f };
     glm::vec3 m_lookAt { 0.f };

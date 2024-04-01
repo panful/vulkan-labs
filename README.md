@@ -323,3 +323,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 19_indirectdraw
 间接绘制适用于处理大量动态数据的场景，不需要CPU提供顶点等数据就可以绘制（例如计算着色器生成的顶点数据，无需回传到CPU创建顶点缓冲就可以直接使用）
 - 20_queryPool
+使用方法和 OpenGL 基本一样，先创建`VkQueryPool`，然后再使用`vkCmdBeginQuery`和`vkCmdEndQuery`查询：遮挡、管线统计、时间戳等。
