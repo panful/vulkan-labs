@@ -59,3 +59,6 @@ AlignEscapedNewlines: Left
 
 # switch语句的case缩进
 IndentCaseLabels: true
+
+# 表达式占多行时，操作符(|&)放在下一行，赋值符(=)尾随变量
+BreakBeforeBinaryOperators: NonAssignment

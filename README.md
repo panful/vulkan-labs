@@ -324,3 +324,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 间接绘制适用于处理大量动态数据的场景，不需要CPU提供顶点等数据就可以绘制（例如计算着色器生成的顶点数据，无需回传到CPU创建顶点缓冲就可以直接使用）
 - 20_queryPool
 使用方法和 OpenGL 基本一样，先创建`VkQueryPool`，然后再使用`vkCmdBeginQuery`和`vkCmdEndQuery`查询：遮挡、管线统计、时间戳等。
+查询管线统计时，需要在创建逻辑设备时将`VkPhysicalDeviceFeatures.pipelineStatisticsQuery`设置为`VK_TRUE`，管线统计可以查询各种着色器（顶点、几何、片段、细分、计算等）的调用次数、输入输出个数等。
