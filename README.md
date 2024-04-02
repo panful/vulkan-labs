@@ -272,7 +272,8 @@ vkEndCommandBuffer()
 - 08_multiSampling
     多重采样抗锯齿
 - 09_computeShader
-    计算着色器的使用
+计算着色器的使用，`vkCmdDispatch`的参数表示全局工作组的大小，Shader中的`layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;`表示本地（局部）工作组的大小。两个工作组的乘积就是GPU线程的数量，这个数量应该不小于粒子的数量。
+图形管线使用`vkCmdDraw`等函数，计算管线使用`vkCmdDispatchIndirect vkCmdDispatch`等函数。图形和计算的执行流程很相似，区别是图形管线使用`vkCmdBindVertexBuffers`等函数提交顶点（索引）等数据，计算管线使用`vkCmdBindDescriptorSets`函数绑定`STORAGE_BUFFER`类型的数据到计算着色器。两种管线都可以使用`vkCmdBindDescriptorSets`更新`uniform`。创建缓冲时将`VkBufferCreateInfo.usage`的属性包含上`VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`就可以将计算着色器中的buffer用于图形着色器中的顶点缓冲。
 ### 02_advance
 [Vulkan SaschaWillems](https://github.com/SaschaWillems/Vulkan)
 

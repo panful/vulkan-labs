@@ -133,62 +133,6 @@ public:
     }
 
 private:
-    GLFWwindow* window;
-
-    VkInstance instance;
-    VkDebugUtilsMessengerEXT debugMessenger;
-    VkSurfaceKHR surface;
-
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    VkDevice device;
-
-    VkQueue graphicsQueue; // 图形队列
-    VkQueue computeQueue;  // 计算着色器队列
-    VkQueue presentQueue;  // 呈现队列
-
-    VkSwapchainKHR swapChain;
-    std::vector<VkImage> swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
-    std::vector<VkImageView> swapChainImageViews;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-
-    VkRenderPass renderPass;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline graphicsPipeline;
-
-    VkDescriptorSetLayout computeDescriptorSetLayout;
-    VkPipelineLayout computePipelineLayout;
-    VkPipeline computePipeline; // 计算管线
-
-    VkCommandPool commandPool;
-
-    std::vector<VkBuffer> shaderStorageBuffers; // 顶点缓冲
-    std::vector<VkDeviceMemory> shaderStorageBuffersMemory;
-
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-
-    VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> computeDescriptorSets;
-
-    std::vector<VkCommandBuffer> commandBuffers;        // 图形指令缓冲
-    std::vector<VkCommandBuffer> computeCommandBuffers; // 计算指令缓冲
-
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkSemaphore> computeFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> computeInFlightFences;
-    uint32_t currentFrame = 0;
-
-    float lastFrameTime = 0.0f;
-
-    bool framebufferResized = false;
-
-    double lastTime = 0.0f;
-
     void initWindow()
     {
         glfwInit();
@@ -200,12 +144,6 @@ private:
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
         lastTime = glfwGetTime();
-    }
-
-    static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
-    {
-        auto app                = reinterpret_cast<ComputeShaderApplication*>(glfwGetWindowUserPointer(window));
-        app->framebufferResized = true;
     }
 
     void initVulkan()
@@ -720,8 +658,8 @@ private:
 
         // 混合，实现透明
         VkPipelineColorBlendAttachmentState colorBlendAttachment {};
-        colorBlendAttachment.colorWriteMask
-            = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         colorBlendAttachment.blendEnable         = VK_TRUE;
         colorBlendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
         colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -984,7 +922,7 @@ private:
             storageBufferInfoLastFrame.buffer = shaderStorageBuffers[(i - 1) % MAX_FRAMES_IN_FLIGHT];
             storageBufferInfoLastFrame.offset = 0;
             storageBufferInfoLastFrame.range  = sizeof(Particle) * PARTICLE_COUNT;
-            // 计算着色器中的 uniform
+            // 计算着色器中的 buffer
             descriptorWrites[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[1].dstSet          = computeDescriptorSets[i];
             descriptorWrites[1].dstBinding      = 1;
@@ -997,7 +935,7 @@ private:
             storageBufferInfoCurrentFrame.buffer = shaderStorageBuffers[i];
             storageBufferInfoCurrentFrame.offset = 0;
             storageBufferInfoCurrentFrame.range  = sizeof(Particle) * PARTICLE_COUNT;
-            // 计算着色器中的 uniform
+            // 计算着色器中的 buffer
             descriptorWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[2].dstSet          = computeDescriptorSets[i];
             descriptorWrites[2].dstBinding      = 2;
@@ -1538,6 +1476,12 @@ private:
         return true;
     }
 
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
+    {
+        auto app                = reinterpret_cast<ComputeShaderApplication*>(glfwGetWindowUserPointer(window));
+        app->framebufferResized = true;
+    }
+
     static std::vector<char> readFile(const std::string& filename)
     {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -1565,6 +1509,63 @@ private:
 
         return VK_FALSE;
     }
+
+private:
+    GLFWwindow* window;
+
+    VkInstance instance;
+    VkDebugUtilsMessengerEXT debugMessenger;
+    VkSurfaceKHR surface;
+
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    VkDevice device;
+
+    VkQueue graphicsQueue; // 图形队列
+    VkQueue computeQueue;  // 计算着色器队列
+    VkQueue presentQueue;  // 呈现队列
+
+    VkSwapchainKHR swapChain;
+    std::vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    std::vector<VkImageView> swapChainImageViews;
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+
+    VkRenderPass renderPass;
+    VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
+
+    VkDescriptorSetLayout computeDescriptorSetLayout;
+    VkPipelineLayout computePipelineLayout;
+    VkPipeline computePipeline; // 计算管线
+
+    VkCommandPool commandPool;
+
+    std::vector<VkBuffer> shaderStorageBuffers; // 顶点缓冲
+    std::vector<VkDeviceMemory> shaderStorageBuffersMemory;
+
+    std::vector<VkBuffer> uniformBuffers;
+    std::vector<VkDeviceMemory> uniformBuffersMemory;
+    std::vector<void*> uniformBuffersMapped;
+
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> computeDescriptorSets;
+
+    std::vector<VkCommandBuffer> commandBuffers;        // 图形指令缓冲
+    std::vector<VkCommandBuffer> computeCommandBuffers; // 计算指令缓冲
+
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkSemaphore> computeFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> computeInFlightFences;
+    uint32_t currentFrame = 0;
+
+    float lastFrameTime = 0.0f;
+
+    bool framebufferResized = false;
+
+    double lastTime = 0.0f;
 };
 
 int main()
