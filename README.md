@@ -283,7 +283,7 @@ vkEndCommandBuffer()
 `VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC`的使用
 对不同的图元设置不同的`uniform`，比如一次渲染循环需要绘制多个三角形（多次DrawCall），每个三角形设置不同的颜色。使用的是同一个`DynamicUniformBuffer`，每一次DrawCall通过不同的偏移值读取不同的颜色值
 - 03_pipelines
-创建多个`pipeline`，每个`pipeline`对应不同的绘制模式（点、线、面），多边形模式（填充、线框）
+创建多个`pipeline`，每个`pipeline`对应不同的绘制模式（点、线、面），多边形模式（填充、线框）。每个`pipeline`在不同的`viewport`上绘制。
 - 04_pushconstants
 类似`Uniform Buffer`，但是不需要创建`descriptor sets`，用起来和OpenGL的`uniform`一样简单，缺点是数据块大小不能太大
 在`VkPipelineLayoutCreateInfo`中添加`push_constant`信息，使用`vkCmdPushConstants`提交`push_constant`数据
@@ -326,3 +326,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 20_queryPool
 使用方法和 OpenGL 基本一样，先创建`VkQueryPool`，然后再使用`vkCmdBeginQuery`和`vkCmdEndQuery`查询：遮挡、管线统计、时间戳等。
 查询管线统计时，需要在创建逻辑设备时将`VkPhysicalDeviceFeatures.pipelineStatisticsQuery`设置为`VK_TRUE`，管线统计可以查询各种着色器（顶点、几何、片段、细分、计算等）的调用次数、输入输出个数等。
+### 03_computeShader
+- 01_imageProcessing
+使用计算着色器对图像进行处理。
