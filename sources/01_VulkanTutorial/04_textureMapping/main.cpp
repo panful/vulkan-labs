@@ -1747,7 +1747,7 @@ private:
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;         // 设置多重采样，只对用作附着的图像对象有效
         imageInfo.flags   = 0; // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
 
-        if (VK_SUCCESS != vkCreateImage(m_device, &imageInfo, nullptr, &m_textureImage))
+        if (VK_SUCCESS != vkCreateImage(m_device, &imageInfo, nullptr, &image))
         {
             throw std::runtime_error("failed to create image");
         }

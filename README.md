@@ -273,7 +273,14 @@ vkEndCommandBuffer()
     多重采样抗锯齿
 - 09_computeShader
 计算着色器的使用，`vkCmdDispatch`的参数表示全局工作组的大小，Shader中的`layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;`表示本地（局部）工作组的大小。两个工作组的乘积就是GPU线程的数量，这个数量应该不小于粒子的数量。
-图形管线使用`vkCmdDraw`等函数，计算管线使用`vkCmdDispatchIndirect vkCmdDispatch`等函数。图形和计算的执行流程很相似，区别是图形管线使用`vkCmdBindVertexBuffers`等函数提交顶点（索引）等数据，计算管线使用`vkCmdBindDescriptorSets`函数绑定`STORAGE_BUFFER`类型的数据到计算着色器。两种管线都可以使用`vkCmdBindDescriptorSets`更新`uniform`。创建缓冲时将`VkBufferCreateInfo.usage`的属性包含上`VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`就可以将计算着色器中的buffer用于图形着色器中的顶点缓冲。
+图形管线使用`vkCmdDraw`等函数提交绘制命令，计算管线使用`vkCmdDispatch`等函数提交计算命令。
+**计算着色器使用时主要有以下步骤**：
+创建描述符布局 vkCreateDescriptorSetLayout
+创建管线 vkCreatePipelineLayout vkCreateComputePipelines
+创建指令池（可选，当图形队列和计算队列不是同一个时，就需要创建用于计算着色器的指令池）vkCreateCommandPool
+创建描述符集 vkAllocateDescriptorSets vkUpdateDescriptorSets
+创建指令缓冲 vkAllocateCommandBuffers
+创建同步对象 vkCreateSemaphore vkCreateFence
 ### 02_advance
 [Vulkan SaschaWillems](https://github.com/SaschaWillems/Vulkan)
 
@@ -329,3 +336,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 ### 03_computeShader
 - 01_imageProcessing
 使用计算着色器对图像进行处理。
+`uniform image2D` 可读可写，通常用于渲染过程中动态修改纹理内容的场景
+`uniform imageBuffer` 一维可读可写的图像缓冲区
+`uniform sampler2D` 纹理采样器，只读

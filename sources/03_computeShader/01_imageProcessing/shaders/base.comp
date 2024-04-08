@@ -1,0 +1,12 @@
+#version 450
+
+layout (local_size_x = 16, local_size_y = 16) in;
+layout (binding = 0, rgba8) uniform readonly image2D inputImage;
+layout (binding = 1, rgba8) uniform image2D outputImage;
+
+void main()
+{
+    vec3 rgb = imageLoad(inputImage, ivec2(gl_GlobalInvocationID.xy)).rgb;
+    vec4 pixel = vec4(rgb.r, rgb.g, 0.f, 1.f);
+    imageStore(outputImage, ivec2(gl_GlobalInvocationID.xy), pixel);
+}
