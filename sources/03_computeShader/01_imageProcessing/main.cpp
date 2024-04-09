@@ -84,10 +84,11 @@ struct QueueFamilyIndices
     std::optional<uint32_t> graphicsFamily {};
     std::optional<uint32_t> presentFamily {};
     std::optional<uint32_t> computeFamily {};
+    std::optional<uint32_t> transferFamily {};
 
     constexpr bool IsComplete() const noexcept
     {
-        return graphicsFamily.has_value() && presentFamily.has_value() && computeFamily.has_value();
+        return graphicsFamily.has_value() && presentFamily.has_value() && computeFamily.has_value() && transferFamily.has_value();
     }
 };
 
@@ -232,7 +233,16 @@ private:
             vkDestroyFence(m_device, m_computeInFlightFences.at(i), nullptr);
         }
 
-        vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+        vkDestroyCommandPool(m_device, m_graphicsCommandPool, nullptr);
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.computeFamily)
+        {
+            vkDestroyCommandPool(m_device, m_computeCommandPool, nullptr);
+        }
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.transferFamily)
+        {
+            vkDestroyCommandPool(m_device, m_transferCommandPool, nullptr);
+        }
+
         vkDestroyDevice(m_device, nullptr);
 
         if (g_enableValidationLayers)
@@ -431,7 +441,7 @@ private:
     /// @brief 检查显卡是否满足需求
     /// @param device
     /// @return
-    bool IsDeviceSuitable(const VkPhysicalDevice device) const noexcept
+    bool IsDeviceSuitable(const VkPhysicalDevice device) noexcept
     {
         // 获取基本的设置属性，name、type以及Vulkan版本等等
         // VkPhysicalDeviceProperties deviceProperties;
@@ -441,7 +451,7 @@ private:
         // VkPhysicalDeviceFeatures deviceFeatures;
         // vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-        auto indices             = FindQueueFamilies(device);
+        m_queueFamilyIndices     = FindQueueFamilies(device);
         auto extensionsSupported = CheckDeviceExtensionSupported(device);
 
         bool swapChainAdequate { false };
@@ -455,7 +465,7 @@ private:
         VkPhysicalDeviceFeatures supportedFeatures {};
         vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-        return indices.IsComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
+        return m_queueFamilyIndices.IsComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
     }
 
     /// @brief 查找满足需求的队列族
@@ -484,9 +494,10 @@ private:
             return std::nullopt;
         };
 
-        QueueFamilyIndices indices;
+        QueueFamilyIndices indices {};
         indices.graphicsFamily = getDedicatedQueue(VK_QUEUE_GRAPHICS_BIT);
         indices.computeFamily  = getDedicatedQueue(VK_QUEUE_COMPUTE_BIT);
+        indices.transferFamily = getDedicatedQueue(VK_QUEUE_TRANSFER_BIT);
 
         auto getSupportQueue = [&queueFamilies](VkQueueFlagBits queueFlagBits, size_t index) -> std::optional<uint32_t>
         {
@@ -516,6 +527,10 @@ private:
             {
                 indices.computeFamily = getSupportQueue(VK_QUEUE_COMPUTE_BIT, i);
             }
+            if (!indices.transferFamily.has_value())
+            {
+                indices.transferFamily = getSupportQueue(VK_QUEUE_TRANSFER_BIT, i);
+            }
 
             if (indices.IsComplete())
             {
@@ -523,16 +538,20 @@ private:
             }
         }
 
+        indices.graphicsFamily = 0;
+        indices.computeFamily  = 2;
+        indices.presentFamily  = 2;
+        indices.transferFamily = 1;
+
         return indices;
     }
 
     /// @brief 创建逻辑设备作为和物理设备交互的接口
     void CreateLogicalDevice()
     {
-        auto indices = FindQueueFamilies(m_physicalDevice);
-
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies { indices.graphicsFamily.value(), indices.presentFamily.value(), indices.computeFamily.value() };
+        std::set<uint32_t> uniqueQueueFamilies { m_queueFamilyIndices.graphicsFamily.value(), m_queueFamilyIndices.presentFamily.value(),
+            m_queueFamilyIndices.computeFamily.value(), m_queueFamilyIndices.transferFamily.value() };
 
         // 控制指令缓存执行顺序的优先级，即使只有一个队列也要显示指定优先级，范围：[0.0, 1.0]
         float queuePriority { 1.f };
@@ -584,9 +603,10 @@ private:
         // 2.队列族索引
         // 3.队列索引，因为只创建了一个队列，所以此处使用索引0
         // 4.用来存储返回的队列句柄的内存地址
-        vkGetDeviceQueue(m_device, indices.graphicsFamily.value(), 0, &m_graphicsQueue);
-        vkGetDeviceQueue(m_device, indices.computeFamily.value(), 0, &m_computeQueue);
-        vkGetDeviceQueue(m_device, indices.presentFamily.value(), 0, &m_presentQueue);
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.graphicsFamily.value(), 0, &m_graphicsQueue);
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.computeFamily.value(), 0, &m_computeQueue);
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.presentFamily.value(), 0, &m_presentQueue);
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.transferFamily.value(), 0, &m_transferQueue);
     }
 
     /// @brief 创建表面，需要在程序退出前清理
@@ -766,12 +786,10 @@ private:
         createInfo.imageArrayLayers         = 1;                     // 图像包含的层次，通常为1，3d图像大于1
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
 
-        auto indices                  = FindQueueFamilies(m_physicalDevice);
-        uint32_t queueFamilyIndices[] = { static_cast<uint32_t>(indices.graphicsFamily.value()),
-            static_cast<uint32_t>(indices.presentFamily.value()) };
+        uint32_t queueFamilyIndices[] = { m_queueFamilyIndices.graphicsFamily.value(), m_queueFamilyIndices.presentFamily.value() };
 
         // 在多个队列族使用交换链图像的方式
-        if (indices.graphicsFamily != indices.presentFamily)
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.presentFamily)
         {
             // 图形队列和呈现队列不是同一个队列
             // VK_SHARING_MODE_CONCURRENT 表示图像可以在多个队列族间使用，不需要显式地改变图像所有权
@@ -1113,8 +1131,6 @@ private:
     /// @brief 创建指令池，用于管理指令缓冲对象使用的内存，并负责指令缓冲对象的分配
     void CreateCommandPool()
     {
-        auto indices = FindQueueFamilies(m_physicalDevice);
-
         // VK_COMMAND_POOL_CREATE_TRANSIENT_BIT 指定从Pool中分配的CommandBuffer将是短暂的，意味着它们将在相对较短的时间内被重置或释放
         // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT 允许从Pool中分配的任何CommandBuffer被单独重置到inital状态
         // 没有设置这个flag则不能使用 vkResetCommandBuffer
@@ -1122,11 +1138,37 @@ private:
         VkCommandPoolCreateInfo poolInfo = {};
         poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex        = indices.graphicsFamily.value(); // TODO
+        poolInfo.queueFamilyIndex        = m_queueFamilyIndices.graphicsFamily.value();
 
-        if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool))
+        if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_graphicsCommandPool))
         {
             throw std::runtime_error("failed to create command pool");
+        }
+
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.computeFamily)
+        {
+            poolInfo.queueFamilyIndex = m_queueFamilyIndices.computeFamily.value();
+            if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_computeCommandPool))
+            {
+                throw std::runtime_error("failed to create command pool");
+            }
+        }
+        else
+        {
+            m_computeCommandPool = m_graphicsCommandPool;
+        }
+
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.transferFamily)
+        {
+            poolInfo.queueFamilyIndex = m_queueFamilyIndices.transferFamily.value();
+            if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_transferCommandPool))
+            {
+                throw std::runtime_error("failed to create command pool");
+            }
+        }
+        else
+        {
+            m_transferCommandPool = m_graphicsCommandPool;
         }
     }
 
@@ -1136,7 +1178,7 @@ private:
 
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool                 = m_commandPool;
+        allocInfo.commandPool                 = m_computeCommandPool;
         allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 指定是主要还是辅助指令缓冲对象
         allocInfo.commandBufferCount          = static_cast<uint32_t>(m_computeCommandBuffers.size());
 
@@ -1153,7 +1195,7 @@ private:
 
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool                 = m_commandPool;
+        allocInfo.commandPool                 = m_graphicsCommandPool;
         allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 指定是主要还是辅助指令缓冲对象
         allocInfo.commandBufferCount          = static_cast<uint32_t>(m_commandBuffers.size());
 
@@ -1590,7 +1632,7 @@ private:
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandPool                 = m_commandPool;
+        allocInfo.commandPool                 = m_transferCommandPool;
         allocInfo.commandBufferCount          = 1;
 
         VkCommandBuffer commandBuffer {};
@@ -1604,7 +1646,7 @@ private:
         return commandBuffer;
     }
 
-    void EndSingleTimeCommands(VkCommandBuffer commandBuffer) const noexcept
+    void EndSingleTimeCommands(VkCommandBuffer commandBuffer) const
     {
         vkEndCommandBuffer(commandBuffer);
 
@@ -1614,11 +1656,15 @@ private:
         submitInfo.pCommandBuffers    = &commandBuffer;
 
         // 提交到内存传输指令队列执行内存传输
-        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, nullptr);
-        // 等待传输操作完成，也可以使用栅栏，栅栏可以同步多个不同的内存传输操作，给驱动程序的优化空间也更大
-        vkQueueWaitIdle(m_graphicsQueue);
+        if (VK_SUCCESS != vkQueueSubmit(m_transferQueue, 1, &submitInfo, nullptr))
+        {
+            throw std::runtime_error("failed to submit transfer command buffer!");
+        }
 
-        vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+        // 等待传输操作完成，也可以使用栅栏，栅栏可以同步多个不同的内存传输操作，给驱动程序的优化空间也更大
+        vkQueueWaitIdle(m_transferQueue);
+
+        vkFreeCommandBuffers(m_device, m_transferCommandPool, 1, &commandBuffer);
     }
 
     /// @brief 在缓冲之间复制数据
@@ -2010,9 +2056,26 @@ private:
         imageInfo.tiling        = tiling;                    // 设置之后不可修改
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 图像数据是接收方，不需要保留第一次变换时的纹理数据
         imageInfo.usage         = usage;
-        imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE; // TODO
         imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;     // 设置多重采样，只对用作附着的图像对象有效
         imageInfo.flags         = 0; // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
+
+        std::vector<uint32_t> queueFamilyIndices; // 不能放在 if else 内部，因为调用 vkCreateImage 之前会释放
+        std::set<uint32_t> uniqueQueueFamilyIndices { m_queueFamilyIndices.graphicsFamily.value(), m_queueFamilyIndices.computeFamily.value(),
+            m_queueFamilyIndices.transferFamily.value() };
+        if (1 == uniqueQueueFamilyIndices.size())
+        {
+            imageInfo.sharingMode           = VK_SHARING_MODE_EXCLUSIVE;
+            imageInfo.queueFamilyIndexCount = 0;
+            imageInfo.pQueueFamilyIndices   = nullptr;
+        }
+        else
+        {
+            queueFamilyIndices.insert(queueFamilyIndices.begin(), uniqueQueueFamilyIndices.begin(), uniqueQueueFamilyIndices.end());
+
+            imageInfo.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+            imageInfo.queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndices.size());
+            imageInfo.pQueueFamilyIndices   = queueFamilyIndices.data();
+        }
 
         // Ensure that the TRANSFER_DST bit is set for staging
         if (!(imageInfo.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
@@ -2274,6 +2337,7 @@ private:
     VkQueue m_graphicsQueue { nullptr }; // 图形队列
     VkSurfaceKHR m_surface { nullptr };
     VkQueue m_presentQueue { nullptr };  // 呈现队列
+    VkQueue m_transferQueue { nullptr }; // 传输队列
     VkSwapchainKHR m_swapChain { nullptr };
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};
@@ -2283,7 +2347,9 @@ private:
     VkPipelineLayout m_pipelineLayout { nullptr };
     VkPipeline m_graphicsPipeline { nullptr };
     std::vector<VkFramebuffer> m_swapChainFramebuffers {};
-    VkCommandPool m_commandPool { nullptr };
+    VkCommandPool m_graphicsCommandPool { nullptr };
+    VkCommandPool m_computeCommandPool { nullptr };
+    VkCommandPool m_transferCommandPool { nullptr };
     std::vector<VkCommandBuffer> m_commandBuffers {};
     std::vector<VkSemaphore> m_imageAvailableSemaphores {};
     std::vector<VkSemaphore> m_renderFinishedSemaphores {};
@@ -2319,6 +2385,8 @@ private:
     VkImageView m_targetTextureImageView { nullptr };
     int m_textureWidth { 0 };
     int m_textureHeight { 0 };
+
+    QueueFamilyIndices m_queueFamilyIndices {};
 };
 
 int main()
