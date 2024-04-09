@@ -160,12 +160,17 @@ vkEndCommandBuffer()
   - VkPipelineLayoutCreateInfo 创建管线布局时会用到描述符集布局
 - 描述符池
   - vkCreateDescriptorPool 指定可以创建X个Y类型的描述符集，比如创建2个UniformBuffer类型的描述符集，或者创建1个Sampler类型的描述符集
+  - VkDescriptorPoolSize 指定对应的描述符池可以分配的各种类型的描述符数量
+  - VkDescriptorPoolCreateInfo.maxSets 指定最大可分配的描述符集（不是描述符）数量
 - 描述符集
-  - vkAllocateDescriptorSets 将描述符集布局和描述符集关联起来
+  - vkAllocateDescriptorSets 创建描述符集，将描述符集布局和描述符集关联起来
   - vkUpdateDescriptorSets 将描述符集和UniformBuffer或采样器关联起来 
-  - VkWriteDescriptorSet 指定绑定点（和Shader对应），类型（UniformBuffer、Sampler），数据（VkDescriptorBufferInfo VkDescriptorImageInfo）
   - VkDescriptorBufferInfo 指定具体哪一个UniformBuffer(VkBuffer)，以及Buffer大小
   - VkDescriptorImageInfo  指定采样器（VkSampler），图像视图（VkImageView）
+- 描述符
+  - VkWriteDescriptorSet 指定绑定点（和Shader对应），类型（UniformBuffer、Sampler），数据（VkDescriptorBufferInfo VkDescriptorImageInfo）
+
+描述符可以简单理解为GLSL中的`uniform sampler`等。描述符集可以简单理解为一整个渲染（计算）管线使用的所有`uniform sampler`等，每使用一次管线，需要使用`vkCmdBindDescriptorSets`绑定一次描述符集。
 ### Buffer和Image
 - 整体步骤：
   - 1. 创建暂存Buffer，申请内存，绑定Buffer和内存

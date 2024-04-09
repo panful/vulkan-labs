@@ -1814,9 +1814,9 @@ private:
         std::array<VkDescriptorPoolSize, 3> poolSizes {};
 
         poolSizes.at(0).type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes.at(0).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
+        poolSizes.at(0).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // pre post 两个 uniform
         poolSizes.at(1).type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes.at(1).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // 两个纹理
+        poolSizes.at(1).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // pre post 两个 sampler
         poolSizes.at(2).type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         poolSizes.at(2).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // 两个 STORAGE_IMAGE
 
@@ -1824,7 +1824,7 @@ private:
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
         poolInfo.pPoolSizes    = poolSizes.data();
-        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 3); // 指定可以分配的最大描述符集个数
+        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 3); // pre post compute 共3个描述符集
         poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
 
         if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
@@ -1845,7 +1845,6 @@ private:
         allocInfo.pSetLayouts        = layouts.data();
 
         // 描述符集对象会在描述符池对象清除时自动被清除
-        // 在这里给每一个交换链图像使用相同的描述符布局创建对应的描述符集
         m_computeDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
         if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_computeDescriptorSets.data()))
         {
