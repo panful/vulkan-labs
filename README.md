@@ -332,7 +332,7 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 17_multiThread
 多线程并行生成命令缓冲区。每一个交换链（每一帧）都有一个主要命令缓冲区(PRIMARY)，主要命令缓冲区可以有多个辅助(SECONDARY)命令缓冲区。将需要绘制的多个图元分配给多个辅助命令缓冲区，每个辅助命令缓冲区并行执行。
 - 18_instancing
-实例化多个相同的图形，和 OpenGL 使用方式基本一致，着色器变量有一点区别：Vulkan中使用`gl_InstanceIndex` OpenGL中使用`gl_InstanceID`。Vulkan 目前好像并不支持类似 OpenGL 函数`glVertexAttribDivisor`的功能：设置多少个实例数据更新一次属性数据，Vulkan 默认是每个实例都更新属性数据。
+实例化多个相同的图形，和 OpenGL 使用方式基本一致，着色器变量有一点区别：Vulkan中使用`gl_InstanceIndex` OpenGL中使用`gl_InstanceID`。Vulkan 目前不支持类似 OpenGL 函数`glVertexAttribDivisor`的功能：设置多少个实例数据更新一次属性数据，Vulkan 默认是每个实例都更新属性数据。Vulkan 的分频器目前是一个扩展功能：`VkVertexInputBindingDivisorDescriptionEXT` `VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT`
 - 19_indirectdraw
 间接绘制适用于处理大量动态数据的场景，不需要CPU提供顶点等数据就可以绘制（例如计算着色器生成的顶点数据，无需回传到CPU创建顶点缓冲就可以直接使用）
 - 20_queryPool
@@ -345,3 +345,4 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 `uniform imageBuffer` 一维可读可写的图像缓冲区
 `uniform sampler2D` 纹理采样器，只读
 绘图、计算、传输使用不同的队列簇。
+- 02_cullAndLOD

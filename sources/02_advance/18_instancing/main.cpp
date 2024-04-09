@@ -1675,7 +1675,7 @@ struct InstanceData
 
         bindingDescription.binding   = InstanceBufferBindID;
         bindingDescription.stride    = sizeof(InstanceData);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE; // 每个渲染实例读取一次顶点属性
 
         return bindingDescription;
     }
