@@ -1,0 +1,38 @@
+#version 450
+
+layout (local_size_x = 1) in;
+
+// 和 VkDrawIndexedIndirectCommand 相同的布局
+struct IndexedIndirectCommand 
+{
+    uint index_count;
+    uint instance_count;
+    uint first_index;
+    uint vertex_offset;
+    uint first_instance;
+};
+
+layout (binding = 0) uniform UBO_input_indirect_draw
+{
+    uint index_count;
+    uint instance_count;
+    uint first_index;
+    uint vertex_offset;
+    uint first_instance;
+} in_indirect_draw;
+
+layout (binding = 1, std430) writeonly buffer WBUF_indirect_draw
+{
+    IndexedIndirectCommand draws;
+} out_indirect_draw;
+
+void main()
+{
+    // 将以 uniform 方式传入到着色器的数据，原封不动写入到 writeonly buffer，提供数据给间接绘制
+    // 此处只是用来测试，可以根据需要写入 writeonly buffer
+    out_indirect_draw.draws.index_count    = in_indirect_draw.index_count;
+    out_indirect_draw.draws.instance_count = in_indirect_draw.instance_count;
+    out_indirect_draw.draws.first_index    = in_indirect_draw.first_index;
+    out_indirect_draw.draws.vertex_offset  = in_indirect_draw.vertex_offset;
+    out_indirect_draw.draws.first_instance = in_indirect_draw.first_instance;
+}

@@ -538,11 +538,6 @@ private:
             }
         }
 
-        indices.graphicsFamily = 0;
-        indices.computeFamily  = 2;
-        indices.presentFamily  = 2;
-        indices.transferFamily = 1;
-
         return indices;
     }
 
