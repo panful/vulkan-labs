@@ -347,3 +347,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 绘图、计算、传输使用不同的队列簇。
 - 02_indirectDraw
 使用计算着色器生成的`VkDrawIndexedIndirectCommand`绘制图形，可以在计算着色器中做：视锥剔除、LOD等，然后将绘制命令写入到buffer中，交给CPU使用间接绘制命令绘制图形。
+### 04_headless
+- 01_render
+不创建窗口将场景绘制到一个不可见的帧缓冲区附件上。
