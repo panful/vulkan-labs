@@ -1,3 +1,4 @@
+#pragma warning(disable : 4996) // 解决 stb_image_write.h 文件中的`sprintf`不安全警告
 
 #include <vulkan/vulkan.h>
 
@@ -8,6 +9,11 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -16,6 +22,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 // 窗口默认大小
@@ -142,6 +149,7 @@ private:
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateCommandBuffers();
+        CreateSaveImageCommandBuffer();
         CreateSyncObjects();
     }
 
@@ -186,6 +194,7 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             vkDestroyFence(m_device, m_inFlightFences.at(i), nullptr);
+            vkDestroySemaphore(m_device, m_renderFinishedSemaphores.at(i), nullptr);
         }
 
         vkDestroyCommandPool(m_device, m_commandPool, nullptr);
@@ -367,6 +376,8 @@ private:
         {
             throw std::runtime_error("failed to find a suitable GPU");
         }
+
+        CheckSupportBlit();
     }
 
     /// @brief 检查显卡是否满足需求
@@ -493,8 +504,7 @@ private:
     /// @brief 创建渲染目标的 Image
     void CreateRenderTargetImages()
     {
-        m_renderTargetImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
-        m_renderTargetExtent      = { WIDTH, HEIGHT };
+        m_renderTargetExtent = { WIDTH, HEIGHT };
 
         m_renderTargetImages.resize(MAX_FRAMES_IN_FLIGHT);
         m_renderTargetImageMemorys.resize(MAX_FRAMES_IN_FLIGHT);
@@ -502,8 +512,8 @@ private:
         for (size_t i = 0; i < m_renderTargetImages.size(); ++i)
         {
             CreateImage(m_renderTargetExtent.width, m_renderTargetExtent.height, m_renderTargetImageFormat, VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_renderTargetImages.at(i),
-                m_renderTargetImageMemorys.at(i));
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                m_renderTargetImages.at(i), m_renderTargetImageMemorys.at(i));
         }
     }
 
@@ -730,10 +740,10 @@ private:
         colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;        // 采样数
         colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;  // 渲染之前对附着中的数据（颜色和深度）进行操作
         colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE; // 渲染之后对附着中的数据（颜色和深度）进行操作
-        colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // 渲染之前对模板缓冲的操作
-        colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 渲染之后对模板缓冲的操作
-        colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;        // 渲染流程开始前的图像布局方式
-        colorAttachment.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;  // 渲染流程结束后的图像布局方式
+        colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;      // 渲染之前对模板缓冲的操作
+        colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;     // 渲染之后对模板缓冲的操作
+        colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;            // 渲染流程开始前的图像布局方式
+        colorAttachment.finalLayout             = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; // 渲染流程结束后的图像布局方式
 
         VkAttachmentDescription depthAttachment = {};
         depthAttachment.format                  = FindDepthFormat();
@@ -937,10 +947,12 @@ private:
         vkResetCommandBuffer(m_commandBuffers.at(m_currentFrame), 0);
         RecordCommandBuffer(m_commandBuffers.at(m_currentFrame), m_renderTargetFramebuffers.at(m_currentFrame));
 
-        VkSubmitInfo submitInfo       = {};
-        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers    = &m_commandBuffers[m_currentFrame]; // 指定实际被提交执行的指令缓冲对象
+        VkSubmitInfo submitInfo         = {};
+        submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount   = 1;
+        submitInfo.pCommandBuffers      = &m_commandBuffers[m_currentFrame]; // 指定实际被提交执行的指令缓冲对象
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame);
 
         // 提交指令缓冲给图形指令队列
         // 如果不等待上一次提交的指令结束执行，可能会导致内存泄漏
@@ -951,14 +963,185 @@ private:
             throw std::runtime_error("failed to submit draw command buffer");
         }
 
+        SaveImage(m_currentFrame);
+
         // 更新当前帧索引
         m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
+
+    void CheckSupportBlit()
+    {
+        VkFormatProperties formatProps {};
+
+        // 检查GPU是否支持对渲染目标图像进行blit操作
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, m_renderTargetImageFormat, &formatProps);
+        if (!(formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT))
+        {
+            m_supportsBlit = false;
+            std::clog << "Device does not support blitting from optimal tiled images, using copy instead of blit!\n";
+        }
+
+        // 检查GPU是否支持对线性图像进行blit操作
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, m_renderTargetImageFormat, &formatProps);
+        if (!(formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT))
+        {
+            m_supportsBlit = false;
+            std::clog << "Device does not support blitting to linear tiled images, using copy instead of blit!\n";
+        }
+    }
+
+    void BlitImage(VkCommandBuffer cmdbuffer, uint32_t width, uint32_t height, VkImage srcImage, VkImage dstImage)
+    {
+        VkOffset3D blitSize = {};
+        blitSize.x          = width;
+        blitSize.y          = height;
+        blitSize.z          = 1;
+
+        VkImageBlit imageBlitRegion               = {};
+        imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.srcSubresource.layerCount = 1;
+        imageBlitRegion.srcOffsets[1]             = blitSize;
+        imageBlitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBlitRegion.dstSubresource.layerCount = 1;
+        imageBlitRegion.dstOffsets[1]             = blitSize;
+
+        vkCmdBlitImage(cmdbuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageBlitRegion,
+            VK_FILTER_NEAREST);
+    }
+
+    void CopyImage(VkCommandBuffer cmdbuffer, uint32_t width, uint32_t height, VkImage srcImage, VkImage dstImage)
+    {
+        VkImageCopy imageCopyRegion {};
+        imageCopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageCopyRegion.srcSubresource.layerCount = 1;
+        imageCopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageCopyRegion.dstSubresource.layerCount = 1;
+        imageCopyRegion.extent.width              = width;
+        imageCopyRegion.extent.height             = height;
+        imageCopyRegion.extent.depth              = 1;
+
+        vkCmdCopyImage(
+            cmdbuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopyRegion);
+    }
+
+    void InsertImageMemoryBarrier(VkCommandBuffer cmdbuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
+        VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkPipelineStageFlags srcStageFlags, VkPipelineStageFlags dstStageFlags)
+    {
+        VkImageMemoryBarrier barrier {};
+        barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout                       = oldLayout;
+        barrier.newLayout                       = newLayout;
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 如果不进行队列所有权传输，必须这样设置
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;   // 同上
+        barrier.image                           = image;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT; // 设置布局变换影响的范围
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 1;
+        barrier.srcAccessMask                   = srcAccessMask;
+        barrier.dstAccessMask                   = dstAccessMask;
+
+        vkCmdPipelineBarrier(cmdbuffer, srcStageFlags, dstStageFlags, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    }
+
+    void CreateSaveImageCommandBuffer()
+    {
+        VkCommandBufferAllocateInfo allocInfo = {};
+        allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool                 = m_commandPool;
+        allocInfo.commandBufferCount          = 1;
+
+        vkAllocateCommandBuffers(m_device, &allocInfo, &m_saveImageCommandBuffer);
+    }
+
+    void SaveImage(size_t currentFrame)
+    {
+        VkImage srcImage = m_renderTargetImages.at(currentFrame);
+
+        VkImage dstImage         = {};
+        VkDeviceMemory dstMemory = {};
+        CreateImage(m_renderTargetExtent.width, m_renderTargetExtent.height, m_renderTargetImageFormat, VK_IMAGE_TILING_LINEAR,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, dstImage, dstMemory);
+
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // 指定如何使用这个指令缓冲
+
+        vkResetCommandBuffer(m_saveImageCommandBuffer, 0);
+        if (VK_SUCCESS != vkBeginCommandBuffer(m_saveImageCommandBuffer, &beginInfo))
+        {
+            throw std::runtime_error("Begin command buffer failed");
+        }
+
+        // 将目标图像转换为：传输目标布局
+        InsertImageMemoryBarrier(m_saveImageCommandBuffer, dstImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        if (m_supportsBlit)
+        {
+            BlitImage(m_saveImageCommandBuffer, m_renderTargetExtent.width, m_renderTargetExtent.height, srcImage, dstImage);
+        }
+        else
+        {
+            CopyImage(m_saveImageCommandBuffer, m_renderTargetExtent.width, m_renderTargetExtent.height, srcImage, dstImage);
+        }
+
+        // 将目标图像转换为：通用读取布局
+        InsertImageMemoryBarrier(m_saveImageCommandBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        vkEndCommandBuffer(m_saveImageCommandBuffer);
+
+        //-------------------------------------------------------------------------------------------------------
+        VkSubmitInfo submitInfo       = {};
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame);
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &m_saveImageCommandBuffer;
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags             = 0;
+
+        VkFence fence { nullptr };
+        vkCreateFence(m_device, &fenceInfo, nullptr, &fence);
+        if (VK_SUCCESS != vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, fence))
+        {
+            throw std::runtime_error("Copy render target to save image failed");
+        }
+        vkWaitForFences(m_device, 1, &fence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+        vkDestroyFence(m_device, fence, nullptr);
+
+        //-------------------------------------------------------------------------------------------------------
+        VkImageSubresource subResource        = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+        VkSubresourceLayout subResourceLayout = {};
+        vkGetImageSubresourceLayout(m_device, dstImage, &subResource, &subResourceLayout);
+
+        uint8_t* data { nullptr };
+        vkMapMemory(m_device, dstMemory, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void**>(&data));
+        data += subResourceLayout.offset;
+
+        static int index { 0 };
+        WriteImage("image_" + std::to_string(index++), m_renderTargetExtent.width, m_renderTargetExtent.height, data);
+
+        vkUnmapMemory(m_device, dstMemory);
+        vkFreeMemory(m_device, dstMemory, nullptr);
+        vkDestroyImage(m_device, dstImage, nullptr);
+    }
+
+    void WriteImage(const std::string& fileName, uint32_t w, uint32_t h, const uint8_t* data)
+    {
+        stbi_write_jpg((fileName + ".jpg").c_str(), static_cast<int>(w), static_cast<int>(h), 4, data, 100);
     }
 
     /// @brief 创建同步对象
     void CreateSyncObjects()
     {
         m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        m_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 
         VkSemaphoreCreateInfo semaphoreInfo = {};
         semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -969,7 +1152,8 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            if (VK_SUCCESS != vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences.at(i)))
+            if (VK_SUCCESS != vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences.at(i))
+                || VK_SUCCESS != vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores.at(i)))
             {
                 throw std::runtime_error("failed to create synchronization objects for a frame");
             }
@@ -1243,8 +1427,23 @@ private:
     {
         auto aspect = static_cast<float>(m_renderTargetExtent.width) / static_cast<float>(m_renderTargetExtent.height);
 
+        std::vector<glm::mat4> model {
+            glm::mat4(1.f),
+            glm::rotate(glm::mat4(1.f), glm::radians(30.f), glm::vec3(0.f, 0.f, 1.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(60.f), glm::vec3(0.f, 0.f, 1.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(90.f), glm::vec3(0.f, 0.f, 1.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(30.f), glm::vec3(0.f, 1.f, 0.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(60.f), glm::vec3(0.f, 1.f, 0.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(90.f), glm::vec3(0.f, 1.f, 0.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(30.f), glm::vec3(1.f, 0.f, 0.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(60.f), glm::vec3(1.f, 0.f, 0.f)),
+            glm::rotate(glm::mat4(1.f), glm::radians(90.f), glm::vec3(1.f, 0.f, 0.f)),
+        };
+
+        static size_t index { 0 };
         UniformBufferObject ubo {};
-        ubo.model = glm::mat4(1.f);
+
+        ubo.model = model.at(index++);
         ubo.view  = glm::lookAt(m_eyePos, m_lookAt, m_viewUp);
         ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
 
@@ -1360,7 +1559,7 @@ private:
         VkMemoryAllocateInfo allocInfo {};
         allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize  = memRequirements.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
 
         if (VK_SUCCESS != vkAllocateMemory(m_device, &allocInfo, nullptr, &imageMemory))
         {
@@ -1496,7 +1695,7 @@ private:
     VkDevice m_device { nullptr };
     VkQueue m_graphicsQueue { nullptr };
 
-    VkFormat m_renderTargetImageFormat {};
+    VkFormat m_renderTargetImageFormat { VK_FORMAT_R8G8B8A8_UNORM };
     VkExtent2D m_renderTargetExtent {};
     std::vector<VkImage> m_renderTargetImages {};
     std::vector<VkImageView> m_renderTargetImageViews {};
@@ -1529,6 +1728,10 @@ private:
     glm::vec3 m_viewUp { 0.f, 1.f, 0.f };
     glm::vec3 m_eyePos { 0.f, 0.f, -3.f };
     glm::vec3 m_lookAt { 0.f };
+
+    VkCommandBuffer m_saveImageCommandBuffer { nullptr };
+    std::vector<VkSemaphore> m_renderFinishedSemaphores {};
+    bool m_supportsBlit { true };
 };
 
 int main()
