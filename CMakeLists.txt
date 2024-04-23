@@ -2,11 +2,11 @@ cmake_minimum_required (VERSION 3.12)
 
 project ("VulkanProject")
 
-set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/install)
-
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/install)
 
 if(MSVC)
     # 解决MSVC C4819警告
@@ -30,6 +30,16 @@ else()
     message("   Vulkan_LIBRARIES: ${Vulkan_LIBRARIES}")
     message("------------------------------------------------------")
 endif()
+
+set(3rdPartyArchiveOutputDir ${CMAKE_CURRENT_SOURCE_DIR}/libs)
+set(3rdPartyHeadersOutputDir ${CMAKE_CURRENT_SOURCE_DIR}/includes)
+
+include(${PROJECT_SOURCE_DIR}/cmake/copy_headers.cmake)
+CopyHeaders()
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/glfw)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
+add_dependencies(imgui glfw)
 
 include(${PROJECT_SOURCE_DIR}/cmake/build_target.cmake)
 BuildTarget(${CMAKE_CURRENT_SOURCE_DIR}/sources/01_VulkanTutorial)

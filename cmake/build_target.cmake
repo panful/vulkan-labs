@@ -11,24 +11,20 @@ function(BuildTarget path)
             file(GLOB_RECURSE subdir_sources ${subdir}/*.cpp)
             set(target_name "${number}_${tar_name}")
 
-            # IMGUI
-            file(GLOB IMGUI_SRC ${PROJECT_SOURCE_DIR}/3rdparty/imgui/src/*)
-
             # target
-            add_executable(${target_name} ${subdir_sources} ${IMGUI_SRC})
+            add_executable(${target_name} ${subdir_sources})
 
             # 3rdparty
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/glm/include)
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/include)
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/stb_image)
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/tiny_obj)
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/imgui/include)
-            
-            target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/3rdparty/GLFW/lib/$<IF:$<CONFIG:Debug>,Debug,Release>/${CMAKE_HOST_SYSTEM_NAME})
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/includes)
+            target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/libs)
+            target_link_libraries(${target_name} PRIVATE glfw imgui)
 
             # vulkan
             target_include_directories(${target_name} PRIVATE ${Vulkan_INCLUDE_DIR})
-            target_link_libraries(${target_name} PRIVATE glfw3 ${Vulkan_LIBRARIES})
+            target_link_libraries(${target_name} PRIVATE ${Vulkan_LIBRARIES})
+
+            # 确保 imgui 已经成功构建
+            add_dependencies(${target_name} imgui)
 
             install(TARGETS ${target_name} RUNTIME DESTINATION .)
 
