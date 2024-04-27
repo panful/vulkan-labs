@@ -1094,11 +1094,14 @@ private:
 
         vkEndCommandBuffer(m_saveImageCommandBuffer);
 
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
         //-------------------------------------------------------------------------------------------------------
         VkSubmitInfo submitInfo       = {};
         submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame);
+        submitInfo.pWaitDstStageMask  = waitStages;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers    = &m_saveImageCommandBuffer;
 
