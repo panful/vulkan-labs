@@ -350,3 +350,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 ### 04_headless
 - 01_render
 不创建窗口将场景绘制到一个不可见的帧缓冲区附件上。绘制十张不同角度的图片并保存为jpg图片。
+### 05_geometryShader
+- 01_geometryShader
+几何着色器只需要在创建逻辑设备时，将`VkPhysicalDeviceFeatures.geometryShader`设置为`VK_TRUE`，然后在创建渲染管线时，将几何着色器加入即可。代码在`01_02_vertexBuffers`的基础上修改。

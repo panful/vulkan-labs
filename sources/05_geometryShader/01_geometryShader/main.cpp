@@ -89,9 +89,9 @@ struct SwapChainSupportDetails
 // clang-format off
 const std::vector<Vertex> vertices {
     { { -0.5f, -0.5f }, { 1.f, 0.f, 0.f } },
-    { { -0.5f,  0.5f }, { 1.f, 0.f, 0.f } },
-    { {  0.5f,  0.5f }, { 0.f, 1.f, 0.f } },
-    { {  0.5f, -0.5f }, { 0.f, 1.f, 0.f } },
+    { { -0.5f,  0.5f }, { 0.f, 1.f, 0.f } },
+    { {  0.5f,  0.5f }, { 0.f, 0.f, 1.f } },
+    { {  0.5f, -0.5f }, { 1.f, 1.f, 1.f } },
 };
 
 const std::vector<uint16_t> indices{
@@ -1477,7 +1477,9 @@ private:
     /// @param pUserData 指向了设置回调函数时，传递的数据指针
     /// @return 引发校验层处理的 Vulkan API 调用是否中断，通常只在测试校验层本身时会返回true，其余都应该返回 VK_FALSE
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) noexcept
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData) noexcept
     {
         std::clog << "===========================================\n"
                   << "Debug::validation layer: " << pCallbackData->pMessage << '\n';
@@ -1491,8 +1493,10 @@ private:
     /// @param pAllocator
     /// @param pCallback
     /// @return
-    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-        const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pCallback) noexcept
+    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
+        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+        const VkAllocationCallbacks* pAllocator,
+        VkDebugUtilsMessengerEXT* pCallback) noexcept
     {
         // vkCreateDebugUtilsMessengerEXT是一个扩展函数，不会被 Vulkan 库自动加载，所以需要手动加载
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
