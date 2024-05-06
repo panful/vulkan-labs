@@ -95,7 +95,8 @@ const std::vector<Vertex> vertices {
 };
 
 const std::vector<uint16_t> indices{
-    0, 1, 2, 3
+    0, 1, 3,
+    1, 2, 3,
 };
 
 // clang-format on
@@ -388,9 +389,9 @@ private:
         // 获取对纹理的压缩、64位浮点数和多视图渲染等可选功能的支持
         VkPhysicalDeviceFeatures deviceFeatures;
         vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-        if (!deviceFeatures.geometryShader)
+        if (!deviceFeatures.geometryShader || !deviceFeatures.multiViewport)
         {
-            throw std::runtime_error("Selected GPU does not support geometry shader");
+            throw std::runtime_error("Selected GPU does not support geometry shader or multi viewport");
         }
 
         auto indices             = FindQueueFamilies(device);
@@ -472,6 +473,7 @@ private:
         // 指定应用程序使用的设备特性（例如几何着色器）
         VkPhysicalDeviceFeatures deviceFeatures = {};
         deviceFeatures.geometryShader           = VK_TRUE; // 开启几何着色器
+        deviceFeatures.multiViewport            = VK_TRUE; //
 
         VkDeviceCreateInfo createInfo      = {};
         createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -733,6 +735,8 @@ private:
 
         m_swapChainImageFormat = surfaceFormat.format;
         m_swapChainExtent      = extent;
+
+        SetViewportAndScissor();
     }
 
     /// @brief 创建图像视图
@@ -769,9 +773,9 @@ private:
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
     void CreateGraphicsPipeline()
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/05_01_base_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/05_01_base_frag.spv");
-        auto geomShaderCode = ReadFile("../resources/shaders/05_01_base_geom.spv");
+        auto vertShaderCode = ReadFile("../resources/shaders/05_02_base_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/05_02_base_frag.spv");
+        auto geomShaderCode = ReadFile("../resources/shaders/05_02_base_geom.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -812,29 +816,13 @@ private:
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
         inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_POINT_LIST; // 指定绘制的图元类型：点、线、三角形
+        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
         inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-        // 视口
-        VkViewport viewport = {};
-        viewport.x          = 0.f;
-        viewport.y          = 0.f;
-        viewport.width      = static_cast<float>(m_swapChainExtent.width);
-        viewport.height     = static_cast<float>(m_swapChainExtent.height);
-        viewport.minDepth   = 0.f; // 深度值范围，必须在 [0.f, 1.f]之间
-        viewport.maxDepth   = 1.f;
-
-        // 裁剪
-        VkRect2D scissor = {};
-        scissor.offset   = { 0, 0 };
-        scissor.extent   = m_swapChainExtent;
 
         VkPipelineViewportStateCreateInfo viewportState = {};
         viewportState.sType                             = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount                     = 1;
-        viewportState.pViewports                        = &viewport;
-        viewportState.scissorCount                      = 1;
-        viewportState.pScissors                         = &scissor;
+        viewportState.viewportCount                     = static_cast<uint32_t>(m_viewports.size());
+        viewportState.scissorCount                      = static_cast<uint32_t>(m_scissors.size());
 
         // 光栅化
         VkPipelineRasterizationStateCreateInfo rasterizer = {};
@@ -1093,21 +1081,8 @@ private:
         // 2.指定管线对象是图形管线还是计算管线
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
-        VkViewport viewport = {};
-        viewport.x          = 0.f;
-        viewport.y          = 0.f;
-        viewport.width      = static_cast<float>(m_swapChainExtent.width);
-        viewport.height     = static_cast<float>(m_swapChainExtent.height);
-        viewport.minDepth   = 0.f;
-        viewport.maxDepth   = 1.f;
-
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor = {};
-        scissor.offset   = { 0, 0 };
-        scissor.extent   = m_swapChainExtent;
-
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        vkCmdSetViewport(commandBuffer, 0, static_cast<uint32_t>(m_viewports.size()), m_viewports.data());
+        vkCmdSetScissor(commandBuffer, 0, static_cast<uint32_t>(m_scissors.size()), m_scissors.data());
 
         VkBuffer vertexBuffers[] = { m_vertexBuffer };
         VkDeviceSize offsets[]   = { 0 };
@@ -1141,6 +1116,7 @@ private:
     /// @brief 绘制每一帧
     /// @details 流程：从交换链获取一张图像、对帧缓冲附着执行指令缓冲中的渲染指令、返回渲染后的图像到交换链进行呈现操作
     void DrawFrame()
+
     {
         // 等待一组栅栏中的一个或全部栅栏发出信号，即上一次提交的指令结束执行
         // 使用栅栏可以进行CPU与GPU之间的同步，防止超过 MAX_FRAMES_IN_FLIGHT 帧的指令同时被提交执行
@@ -1473,6 +1449,24 @@ private:
         throw std::runtime_error("failed to find suitable memory type");
     }
 
+    void SetViewportAndScissor()
+    {
+        auto w = m_swapChainExtent.width;
+        auto h = m_swapChainExtent.height;
+
+        m_viewports.at(0) = { 0.f, 0.f, static_cast<float>(w / 2), static_cast<float>(h), 0.f, 1.f };
+        m_viewports.at(1) = { static_cast<float>(w / 2), 0.f, static_cast<float>(w / 2), static_cast<float>(h), 0.f, 1.f };
+
+        m_scissors.at(0) = {
+            { 0,     0 },
+            { w / 2, h }
+        };
+        m_scissors.at(1) = {
+            { static_cast<int32_t>(w / 2), 0 },
+            { w / 2,                       h }
+        };
+    }
+
 private:
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
@@ -1584,6 +1578,9 @@ private:
     VkDeviceMemory m_vertexBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
+
+    std::array<VkViewport, 2> m_viewports;
+    std::array<VkRect2D, 2> m_scissors;
 };
 
 int main()
