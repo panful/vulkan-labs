@@ -1,0 +1,21 @@
+#version 450
+
+layout(local_size_x = 1) in;
+
+layout(binding = 0) uniform UBO_input_data
+{
+    uint a;
+    uint b;
+    uint c;
+    uint d;
+}input_data;
+
+layout(binding = 1) writeonly buffer BUF_output_data
+{
+    uint result;
+}output_data;
+
+void main()
+{
+    output_data.result = input_data.a * input_data.b * input_data.c * input_data.d;
+}
