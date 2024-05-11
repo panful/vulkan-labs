@@ -357,3 +357,6 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 几何着色器只需要在创建逻辑设备时，将`VkPhysicalDeviceFeatures.geometryShader`设置为`VK_TRUE`，然后在创建渲染管线时，将几何着色器加入即可。代码在`01_02_vertexBuffers`的基础上修改。
 - 02_viewportArrays
 使用`multiViewport`时，需要先将`VkPhysicalDeviceFeatures.multiViewport`设置为`VK_TRUE`(geometryShader也要设置)，然后在创建渲染管线时，设置正确的`VkPipelineViewportStateCreateInfo`，如果程序开启了动态视口、裁剪，还需要正确调用`vkCmdSetViewport vkCmdSetScissor`
+### 06_extensions
+- 01_conditionalRender
+条件渲染，首先需要在创建Instance和Device时将扩展开启，然后加载`vkCmdBeginConditionalRenderingEXT vkCmdEndConditionalRenderingEXT`这两个函数指针。

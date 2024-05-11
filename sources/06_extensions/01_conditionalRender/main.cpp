@@ -15,7 +15,10 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <vector>
+
+constexpr uint64_t CONDITIONAL_RENDERING_COUNT { 5 };
 
 // 窗口默认大小
 constexpr uint32_t WIDTH  = 800;
@@ -27,7 +30,9 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 // 需要开启的校验层的名称
 const std::vector<const char*> g_validationLayers = { "VK_LAYER_KHRONOS_validation" };
 // 交换链扩展
-const std::vector<const char*> g_deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+const std::vector<const char*> g_deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME };
+// Conditional rendering 扩展
+const std::vector<const char*> g_instanceExtensions = { VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME };
 
 // 是否启用校验层
 #ifdef NDEBUG
@@ -157,6 +162,7 @@ private:
         CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
+        SetupExtensionFunctions();
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
@@ -165,6 +171,7 @@ private:
         CreateCommandPool();
         CreateVertexBuffer();
         CreateIndexBuffer();
+        CreateConditionalRenderingBuffer();
         CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -197,6 +204,12 @@ private:
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
         vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            vkDestroyBuffer(m_device, m_conditionalRenderingBuffers.at(i), nullptr);
+            vkFreeMemory(m_device, m_conditionalRenderingBuffersMemory.at(i), nullptr);
+        }
 
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -235,11 +248,10 @@ private:
         ImGui::NewFrame();
         ImGui::Begin("Conditional Render");
         {
-            ImGui::Checkbox("Checkbox_0", &checkBox0);
-            ImGui::Checkbox("Checkbox_1", &checkBox1);
-            ImGui::Checkbox("Checkbox_2", &checkBox2);
-            ImGui::Checkbox("Checkbox_3", &checkBox3);
-            ImGui::Checkbox("Checkbox_4", &checkBox4);
+            for (uint64_t i = 0; i < CONDITIONAL_RENDERING_COUNT; ++i)
+            {
+                ImGui::Checkbox((std::string("CheckBox ") + std::to_string(i)).c_str(), &m_checkBoxes.at(i));
+            }
         }
         ImGui::End();
         ImGui::Render();
@@ -445,6 +457,7 @@ private:
 
         // 将需要开启的所有扩展添加到列表并返回
         std::vector<const char*> requiredExtensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+        requiredExtensions.insert(requiredExtensions.cend(), g_instanceExtensions.cbegin(), g_instanceExtensions.cend());
         if (g_enableValidationLayers)
         {
             // 根据需要开启调试报告相关的扩展
@@ -1224,7 +1237,19 @@ private:
 
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        // vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+        for (uint64_t i = 0; i < CONDITIONAL_RENDERING_COUNT; ++i)
+        {
+            VkConditionalRenderingBeginInfoEXT conditionalRenderingBeginInfo {};
+            conditionalRenderingBeginInfo.sType  = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+            conditionalRenderingBeginInfo.buffer = m_conditionalRenderingBuffers.at(m_currentFrame);
+            conditionalRenderingBeginInfo.offset = sizeof(int32_t) * i;
+
+            vkCmdBeginConditionalRenderingEXT(commandBuffer, &conditionalRenderingBeginInfo);
+            vkCmdDrawIndexed(commandBuffer, 3, 1, static_cast<uint32_t>(3 * i), 0, 0); // 3表示一个三角形3个顶点
+            vkCmdEndConditionalRenderingEXT(commandBuffer);
+        }
 
         // 绘制ImGui
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -1266,6 +1291,8 @@ private:
         {
             throw std::runtime_error("failed to acquire swap chain image");
         }
+
+        UpdateConditionalRenderingBuffers(m_currentFrame);
 
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
@@ -1468,6 +1495,33 @@ private:
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
     }
 
+    void CreateConditionalRenderingBuffer()
+    {
+        VkDeviceSize bufferSize = sizeof(int32_t) * CONDITIONAL_RENDERING_COUNT;
+
+        m_conditionalRenderingBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        m_conditionalRenderingBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        m_conditionalRenderingBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            CreateBuffer(bufferSize, VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_conditionalRenderingBuffers.at(i),
+                m_conditionalRenderingBuffersMemory.at(i));
+            vkMapMemory(m_device, m_conditionalRenderingBuffersMemory.at(i), 0, bufferSize, 0, &m_conditionalRenderingBuffersMapped.at(i));
+        }
+    }
+
+    void UpdateConditionalRenderingBuffers(size_t currentFrame)
+    {
+        static std::vector<int32_t> buffer(CONDITIONAL_RENDERING_COUNT);
+        for (uint64_t i = 0; i < CONDITIONAL_RENDERING_COUNT; ++i)
+        {
+            buffer.at(i) = m_checkBoxes.at(i) ? 1 : 0;
+        }
+        std::memcpy(m_conditionalRenderingBuffersMapped[currentFrame], buffer.data(), sizeof(int32_t) * CONDITIONAL_RENDERING_COUNT);
+    }
+
     /// @brief 创建指定类型的缓冲
     /// @details Vulkan 的缓冲是可以存储任意数据的可以被显卡读取的内存，不仅可以存储顶点数据
     /// @param size
@@ -1575,6 +1629,21 @@ private:
     }
 
 private:
+    void SetupExtensionFunctions()
+    {
+        vkCmdBeginConditionalRenderingEXT = (PFN_vkCmdBeginConditionalRenderingEXT)vkGetDeviceProcAddr(m_device, "vkCmdBeginConditionalRenderingEXT");
+        if (!vkCmdBeginConditionalRenderingEXT)
+        {
+            throw std::runtime_error("Could not get a valid function pointer for vkCmdBeginConditionalRenderingEXT");
+        }
+
+        vkCmdEndConditionalRenderingEXT = (PFN_vkCmdEndConditionalRenderingEXT)vkGetDeviceProcAddr(m_device, "vkCmdEndConditionalRenderingEXT");
+        if (!vkCmdEndConditionalRenderingEXT)
+        {
+            throw std::runtime_error("Could not get a valid function pointer for vkCmdEndConditionalRenderingEXT");
+        }
+    }
+
     /// @brief 接受调试信息的回调函数
     /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
     /// @param messageType 发生了与规范和性能无关的事件、出现了违反规范的错误、进行了可能影响 Vulkan 性能的行为
@@ -1689,6 +1758,15 @@ private:
 
     uint32_t m_minImageCount { 0 };
     VkDescriptorPool m_imguiDescriptorPool { nullptr };
+
+    PFN_vkCmdBeginConditionalRenderingEXT vkCmdBeginConditionalRenderingEXT {};
+    PFN_vkCmdEndConditionalRenderingEXT vkCmdEndConditionalRenderingEXT {};
+
+    std::array<bool, CONDITIONAL_RENDERING_COUNT> m_checkBoxes { true, true, true, true, true };
+
+    std::vector<VkBuffer> m_conditionalRenderingBuffers {};
+    std::vector<VkDeviceMemory> m_conditionalRenderingBuffersMemory {};
+    std::vector<void*> m_conditionalRenderingBuffersMapped {};
 };
 
 int main()
