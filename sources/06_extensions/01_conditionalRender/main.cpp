@@ -92,21 +92,34 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices {
-    {{-0.8f,  0.8f}, {1.f, 0.f, 0.f}},
-    {{-0.2f,  0.8f}, {1.f, 0.f, 0.f}},
-    {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
+    { { -0.8f, -0.2f },  { 1.f, 0.f, 0.f } },
+    { { -0.2f, -0.2f },  { 1.f, 0.f, 0.f } },
+    { { -0.5f, -0.8f },  { 1.f, 0.f, 0.f } },
+
+    { {  0.2f, -0.2f },  { 0.f, 1.f, 0.f } },
+    { {  0.8f, -0.2f },  { 0.f, 1.f, 0.f } },
+    { {  0.5f, -0.8f },  { 0.f, 1.f, 0.f } },
+
+    { { -0.8f,  0.8f },  { 0.f, 0.f, 1.f } },
+    { { -0.2f,  0.8f },  { 0.f, 0.f, 1.f } },
+    { { -0.5f,  0.2f },  { 0.f, 0.f, 1.f } },
+
+    { {  0.2f,  0.8f },  { 1.f, 0.f, 1.f } },
+    { {  0.8f,  0.8f },  { 1.f, 0.f, 1.f } },
+    { {  0.5f,  0.2f },  { 1.f, 0.f, 1.f } },
+
+    { { -0.3f,  0.3f },  { 1.f, 1.f, 0.f } },
+    { {  0.3f,  0.3f },  { 1.f, 1.f, 0.f } },
+    { {  0.0f, -0.3f },  { 1.f, 1.f, 0.f } },
 };
 
-const std::vector<Vertex> vertices2 {
-    {{ 0.2f,  0.8f}, {1.f, 1.f, 0.f}},
-    {{ 0.8f,  0.8f}, {1.f, 1.f, 0.f}},
-    {{ 0.8f, -0.5f}, {1.f, 1.f, 0.f}},
-};
-
-const std::vector<uint16_t> indices{
+const std::vector<uint16_t> indices {
     0, 1, 2,
+    3, 4, 5,
+    6, 7, 8,
+    9, 10, 11,
+    12, 13, 14,
 };
-
 // clang-format on
 
 class HelloTriangleApplication
@@ -152,8 +165,6 @@ private:
         CreateCommandPool();
         CreateVertexBuffer();
         CreateIndexBuffer();
-        CreateVertexBuffer2();
-        CreateIndexBuffer2();
         CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -187,11 +198,6 @@ private:
         vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
         vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
 
-        vkDestroyBuffer(m_device, m_vertexBuffer2, nullptr);
-        vkFreeMemory(m_device, m_vertexBufferMemory2, nullptr);
-        vkDestroyBuffer(m_device, m_indexBuffer2, nullptr);
-        vkFreeMemory(m_device, m_indexBufferMemory2, nullptr);
-
         vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
@@ -221,108 +227,21 @@ private:
     }
 
 private:
-    bool open { true };
-    int comboIndex { 0 };
-    float slider { 50.f };
-    bool checkBox0 { false }, checkBox1 { false }, checkBox2 { false };
-    float inputFloat3[3] { 0.f };
-    int radio { 0 };
-    float color[3] { 1.f };
+    bool checkBox0 { true }, checkBox1 { true }, checkBox2 { true }, checkBox3 { true }, checkBox4 { true };
 
     /// @brief 添加需要渲染的GUI控件
     void PrepareImGui()
     {
         ImGui::NewFrame();
-
-        if (open)
+        ImGui::Begin("Conditional Render");
         {
-            ImGui::Begin("Window 0", &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-            {
-                ImGui::SetWindowPos({ 10.f, 10.f });
-                ImGui::SetWindowSize({ 120.f, 100.f });
-                ImGui::TextColored({ 1.f, 1.f, 0.f, 1.f }, "Text");
-            }
-            ImGui::End();
-        }
-
-        ImGui::Begin("Window 1");
-        {
-            //-----------------------------------------------------------------------
-            // 显示文本
-            ImGui::Text("This is a simple GUI");
-
-            //-----------------------------------------------------------------------
-            // 按钮
-            if (ImGui::Button("Test Button"))
-            {
-                // 当按钮被点击时会进入
-                std::cout << "clicked button\n";
-            }
-
-            //-----------------------------------------------------------------------
-            // 下拉列表框
-            const char* const str[] { "0", "1", "2", "3" };
-            if (ImGui::Combo("Combo", &comboIndex, str, 4))
-            {
-                // 当index改变时会进入
-                std::cout << "index\t" << comboIndex << '\n';
-            }
-
-            //-----------------------------------------------------------------------
-            // 滑杆
-            if (ImGui::SliderFloat("Slider", &slider, 10.f, 100.f))
-            {
-                std::cout << "Slider\t" << slider << '\n';
-            }
-
-            //-----------------------------------------------------------------------
-            // 复选框
-            if (ImGui::Checkbox("Checkbox_0", &checkBox0))
-            {
-                std::cout << "Checkbox_0\t" << checkBox0 << '\n';
-            }
-
-            if (ImGui::Checkbox("Checkbox_1", &checkBox1))
-            {
-                std::cout << "Checkbox_1\t" << checkBox1 << '\n';
-            }
-
-            if (ImGui::Checkbox("Checkbox_2", &checkBox2))
-            {
-                std::cout << "Checkbox_2\t" << checkBox2 << '\n';
-            }
-
-            //-----------------------------------------------------------------------
-            // 输入框
-            if (ImGui::InputFloat3("InputFloat3", inputFloat3))
-            {
-                std::cout << "InputFlot3\t" << inputFloat3[0] << '\t' << inputFloat3[1] << '\t' << inputFloat3[2] << '\n';
-            }
-
-            //-----------------------------------------------------------------------
-            // 单选框
-            if (ImGui::RadioButton("Radio_0", &radio, 0))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
-            if (ImGui::SameLine(), ImGui::RadioButton("Radio_1", &radio, 1))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
-            if (ImGui::SameLine(), ImGui::RadioButton("Radio_2", &radio, 2))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
-
-            //-----------------------------------------------------------------------
-            // 颜色选择框
-            if (ImGui::ColorEdit3("ColorEdit3", color))
-            {
-                std::cout << "ColorEdit3\t" << color[0] << '\t' << color[1] << '\t' << color[2] << '\n';
-            }
+            ImGui::Checkbox("Checkbox_0", &checkBox0);
+            ImGui::Checkbox("Checkbox_1", &checkBox1);
+            ImGui::Checkbox("Checkbox_2", &checkBox2);
+            ImGui::Checkbox("Checkbox_3", &checkBox3);
+            ImGui::Checkbox("Checkbox_4", &checkBox4);
         }
         ImGui::End();
-
         ImGui::Render();
     }
 
@@ -1303,15 +1222,7 @@ private:
 
         VkDeviceSize offsets[] = { 0 };
 
-        //-------------------------------------------------------------------------------
-        // 绘制第一个三角形
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-
-        //-------------------------------------------------------------------------------
-        // 绘制第二个三角形，因为和第一个三角形的索引缓冲一样，所以可以用同一个索引
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer2, offsets);
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
@@ -1557,73 +1468,6 @@ private:
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
     }
 
-    /// @brief 创建顶点缓冲
-    void CreateVertexBuffer2()
-    {
-        VkDeviceSize bufferSize = sizeof(Vertex) * vertices2.size();
-
-        // 为了提升性能，使用一个临时（暂存）缓冲，先将顶点数据加载到临时缓冲，再复制到顶点缓冲
-        VkBuffer stagingBuffer {};
-        VkDeviceMemory stagingBufferMemory {};
-
-        // 创建一个CPU可见的缓冲作为临时缓冲
-        // VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 用于从CPU写入数据
-        // VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 可以保证数据被立即复制到缓冲关联的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        void* data { nullptr };
-        // 将缓冲关联的内存映射到CPU可以访问的内存
-        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        // 将顶点数据复制到映射后的内存
-        std::memcpy(data, vertices2.data(), static_cast<size_t>(bufferSize));
-        // 结束内存映射
-        vkUnmapMemory(m_device, stagingBufferMemory);
-
-        // 创建一个显卡读取较快的缓冲作为真正的顶点缓冲
-        // 具有 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT 标记的内存最适合显卡读取，CPU通常不能访问这种类型的内存
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_vertexBuffer2, m_vertexBufferMemory2);
-
-        // m_vertexBuffer 现在关联的内存是设备所有的（显卡），不能使用 vkMapMemory 函数对它关联的内存进行映射
-        // 从临时（暂存）缓冲复制数据到显卡读取较快的缓冲中
-        CopyBuffer(stagingBuffer, m_vertexBuffer2, bufferSize);
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
-
-        // 驱动程序可能并不会立即复制数据到缓冲关联的内存中去，因为处理器都有缓存，写入内存的数据并不一定在多个核心同时可见
-        // 保证数据被立即复制到缓冲关联的内存可以使用以下函数，或者使用 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 属性的内存类型
-        // 使用函数的方法性能更好
-        // 写入数据到映射的内存后，调用 vkFlushMappedMemoryRanges
-        // 读取映射的内存数据前，调用 vkInvalidateMappedMemoryRanges
-    }
-
-    /// @brief 创建索引缓冲
-    void CreateIndexBuffer2()
-    {
-        VkDeviceSize bufferSize = sizeof(indices.front()) * indices.size();
-
-        VkBuffer stagingBuffer {};
-        VkDeviceMemory stagingBufferMemory {};
-
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            stagingBuffer, stagingBufferMemory);
-
-        void* data { nullptr };
-        vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
-        vkUnmapMemory(m_device, stagingBufferMemory);
-
-        CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_indexBuffer2, m_indexBufferMemory2);
-
-        CopyBuffer(stagingBuffer, m_indexBuffer2, bufferSize);
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingBufferMemory, nullptr);
-    }
-
     /// @brief 创建指定类型的缓冲
     /// @details Vulkan 的缓冲是可以存储任意数据的可以被显卡读取的内存，不仅可以存储顶点数据
     /// @param size
@@ -1842,11 +1686,6 @@ private:
     VkDeviceMemory m_vertexBufferMemory { nullptr };
     VkBuffer m_indexBuffer { nullptr };
     VkDeviceMemory m_indexBufferMemory { nullptr };
-
-    VkBuffer m_vertexBuffer2 { nullptr };
-    VkDeviceMemory m_vertexBufferMemory2 { nullptr };
-    VkBuffer m_indexBuffer2 { nullptr };
-    VkDeviceMemory m_indexBufferMemory2 { nullptr };
 
     uint32_t m_minImageCount { 0 };
     VkDescriptorPool m_imguiDescriptorPool { nullptr };
