@@ -2287,7 +2287,6 @@ private:
     /// @param imageMemory
     void CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
         VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
-
     {
         // tiling成员变量可以是 VK_IMAGE_TILING_LINEAR 纹素以行主序的方式排列，可以直接访问图像
         //                     VK_IMAGE_TILING_OPTIMAL 纹素以一种对访问优化的方式排列

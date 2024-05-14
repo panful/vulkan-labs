@@ -106,7 +106,7 @@ struct SwapChainSupportDetails
 
 // clang-format off
 const std::vector<Vertex> vertices  {
-    { {-0.5f, -0.5f}, {1.f, 0.f, 0.f}, {0.f, 0.f} },
+    { {-0.5f, -0.5f}, {1.f, 0.f, 0.f}, {0.f, 0.f} }, // 纹理坐标的 (0, 0) 在左上角
     { {-0.5f,  0.5f}, {1.f, 0.f, 0.f}, {0.f, 1.f} },
     { { 0.5f,  0.5f}, {0.f, 1.f, 0.f}, {1.f, 1.f} },
     { { 0.5f, -0.5f}, {0.f, 1.f, 0.f}, {1.f, 0.f} },
@@ -1576,6 +1576,10 @@ private:
 
         // glm的裁剪坐标的Y轴和 Vulkan 是相反的
         ubo.proj[1][1] *= -1;
+
+        ubo.model = glm::mat4(1.f);
+        ubo.view = glm::mat4(1.f);
+        ubo.proj = glm::mat4(1.f);
 
         // 将变换矩阵的数据复制到uniform缓冲
         std::memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));

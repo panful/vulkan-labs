@@ -360,3 +360,5 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 ### 06_extensions
 - 01_conditionalRender
 条件渲染，首先需要在创建Instance和Device时将扩展开启，然后加载`vkCmdBeginConditionalRenderingEXT vkCmdEndConditionalRenderingEXT`这两个函数指针。
+- 02_multiView
+注意和 05_geometryShader/02_viewportArrays 的区别：multiView 是在顶点着色器中使用`gl_ViewIndex`，viewportArrays 是在几何着色器中使用`gl_InvocationID`，并且 multiView 是扩展功能。multiView 需要先将结果离屏渲染到 VkImage 中（交换链中的图片一般不支持 Array 类型的图片），然后以纹理的方式绘制到屏幕（ multiView 的结果是`VK_IMAGE_VIEW_TYPE_2D_ARRAY`）
