@@ -69,19 +69,19 @@ AlignArrayOfStructures : Left
 
 # 声明函数时，如果形参一行放不下，则每个参数都占用一行
 BinPackParameters: false
-#AllowAllParametersOfDeclarationOnNextLine: true
-
-# 函数参数多行时，根据第一行对齐
-#AlignAfterOpenBracket: Align
+AllowAllParametersOfDeclarationOnNextLine: true
 
 # 调用函数时，如果实参一行放不下，则每个参数都占用一行
-#BinPackArguments: false
-#AllowAllArgumentsOnNextLine: true
+BinPackArguments: false
+AllowAllArgumentsOnNextLine: true
+
+# 函数参数多行时，根据第一行对齐
+AlignAfterOpenBracket: BlockIndent
 
 # 对象使用大括号初始化时，对象名与大括号之间加一个空格
-#SpaceBeforeCpp11BracedList: true
+SpaceBeforeCpp11BracedList: true
 # 对象使用大括号初始化时，开始和结束元素与括号之间加一个空格
-#Cpp11BracedListStyle: false
+Cpp11BracedListStyle: true
 
 # 简单的lambda放在一行
 AllowShortLambdasOnASingleLine : All

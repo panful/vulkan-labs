@@ -9,10 +9,11 @@ function(BuildTarget path)
         foreach(subdir ${subdirectories})
             get_filename_component(tar_name ${subdir} NAME)
             file(GLOB_RECURSE subdir_sources ${subdir}/*.cpp)
+            file(GLOB_RECURSE subdir_headers ${subdir}/*.h)
             set(target_name "${number}_${tar_name}")
 
             # target
-            add_executable(${target_name} ${subdir_sources})
+            add_executable(${target_name} ${subdir_sources} ${subdir_headers})
 
             # 3rdparty
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/includes)

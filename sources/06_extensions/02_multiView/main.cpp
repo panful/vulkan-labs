@@ -889,8 +889,8 @@ private:
         {
             // VK_SHARING_MODE_EXCLUSIVE 表示一张图像同一时间只能被一个队列族所拥有，这种模式性能最佳
             createInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-            createInfo.queueFamilyIndexCount = 0;
-            createInfo.pQueueFamilyIndices   = nullptr;
+            createInfo.queueFamilyIndexCount = 1;
+            createInfo.pQueueFamilyIndices   = queueFamilyIndices;
         }
 
         // 指定一个固定的变换操作（需要交换链具有supportedTransforms特性），此处不进行任何变换
