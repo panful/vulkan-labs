@@ -670,7 +670,8 @@ int main()
 
         //--------------------------------------------------------------------------------------
         vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
-        vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, {colorAttachment}, {}, {}, {});
+        std::array colorAttachments {colorAttachment};
+        vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
         std::vector<vk::AttachmentDescription> attachmentDescriptions {
             {{},
              colorFormat, vk::SampleCountFlagBits::e1,
@@ -697,7 +698,8 @@ int main()
         vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo({}, descriptorSetLayoutBindings);
         vk::raii::DescriptorSetLayout descriptorSetLayout(device, descriptorSetLayoutCreateInfo);
 
-        vk::raii::PipelineLayout pipelineLayout(device, {{}, {*descriptorSetLayout}});
+        std::array<vk::DescriptorSetLayout, 1> descriptorSetLayoursForPipeline {descriptorSetLayout};
+        vk::raii::PipelineLayout pipelineLayout(device, {{}, descriptorSetLayoursForPipeline});
         vk::raii::PipelineCache pipelineCache(device, vk::PipelineCacheCreateInfo());
 
         vk::raii::Pipeline graphicsPipeline = makeGraphicsPipeline(

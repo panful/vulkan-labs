@@ -656,7 +656,8 @@ int main()
 
         //--------------------------------------------------------------------------------------
         vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
-        vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, {colorAttachment}, {}, {}, {});
+        std::array colorAttachments {colorAttachment};
+        vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
         std::vector<vk::AttachmentDescription> attachmentDescriptions {
             {{},
              colorFormat, vk::SampleCountFlagBits::e1,
