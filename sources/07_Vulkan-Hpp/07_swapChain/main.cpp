@@ -1,8 +1,3 @@
-#pragma warning(disable : 4996) // 解决 stb_image_write.h 文件中的`sprintf`不安全警告
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
-
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -16,8 +11,10 @@ static std::string AppName {"Vulkan-Hpp"};
 static std::string EngineName {"Vulkan-Hpp"};
 static std::vector<const char*> EnableLayerNames {"VK_LAYER_KHRONOS_validation"};
 static std::vector<const char*> EnableExtensionNames {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+
 static vk::Extent2D extent {800, 600};
 
+constexpr static uint64_t TimeOut {std::numeric_limits<uint64_t>::max()};
 constexpr static uint32_t MaxFramesInFlight {3};
 static uint32_t CurrentFrameIndex {0};
 
@@ -147,13 +144,17 @@ vk::raii::Pipeline makeGraphicsPipeline(
 
 struct Window
 {
-    Window(std::string const& name, vk::Extent2D const& extent)
+    Window(std::string const& _name, vk::Extent2D const& _extent)
+        : extent(_extent)
     {
         glfwInit();
         glfwSetErrorCallback([](int error, const char* msg) { std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl; });
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-        window = glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
+        window = glfwCreateWindow(extent.width, extent.height, _name.c_str(), nullptr, nullptr);
+
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int width, int height) {});
     }
 
     ~Window()
@@ -184,6 +185,7 @@ struct Window
     }
 
     GLFWwindow* window {};
+    vk::Extent2D extent {};
 };
 
 struct SurfaceData
@@ -270,7 +272,6 @@ struct SwapChainData
         colorFormat                        = surfaceFormat.format;
 
         vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
-        vk::Extent2D swapchainExtent;
         if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max())
         {
             // If the surface size is undefined, the size is set to the size of the images requested.
@@ -291,7 +292,8 @@ struct SwapChainData
             ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied
             : (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit) ? vk::CompositeAlphaFlagBitsKHR::eInherit
                                                                                                       : vk::CompositeAlphaFlagBitsKHR::eOpaque;
-        vk::PresentModeKHR presentMode               = pickPresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
+
+        vk::PresentModeKHR presentMode = pickPresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
         vk::SwapchainCreateInfoKHR swapChainCreateInfo(
             {},
             surface,
@@ -336,7 +338,68 @@ struct SwapChainData
     vk::raii::SwapchainKHR swapChain = nullptr;
     std::vector<vk::Image> images;
     std::vector<vk::raii::ImageView> imageViews;
+    vk::Extent2D swapchainExtent;
 };
+
+void RecreateSwapChain(
+    uint32_t& index,
+    GLFWwindow* window,
+    SwapChainData& swapChainData,
+    std::array<vk::raii::Framebuffer, MaxFramesInFlight>& framebuffers,
+    vk::raii::RenderPass const& renderPass,
+    vk::raii::PhysicalDevice const& physicalDevice,
+    vk::raii::Device const& device,
+    vk::raii::SurfaceKHR const& surface,
+    vk::Extent2D const& extent,
+    vk::ImageUsageFlags usage,
+    vk::raii::SwapchainKHR const* pOldSwapchain,
+    uint32_t graphicsQueueFamilyIndex,
+    uint32_t presentQueueFamilyIndex
+)
+{
+    index = MaxFramesInFlight - 1; // XXX: 验证层报错：交换链图像布局不符合展示需要的布局，窗口大小改变时当前帧序号从0开始就不会报错
+
+    int width {0}, height {0};
+    glfwGetFramebufferSize(window, &width, &height);
+    while (0 == width || 0 == height)
+    {
+        glfwGetFramebufferSize(window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    device.waitIdle();
+
+    try
+    {
+        swapChainData = SwapChainData(
+            physicalDevice,
+            device,
+            surface,
+            extent,
+            vk::ImageUsageFlagBits::eColorAttachment,
+            pOldSwapchain,
+            graphicsQueueFamilyIndex,
+            presentQueueFamilyIndex
+        );
+    }
+    catch (vk::SystemError& err)
+    {
+        std::cout << "swapChain vk::SystemError: " << err.what() << std::endl;
+    }
+
+    std::array<std::array<vk::ImageView, 1>, MaxFramesInFlight> imageViews {
+        std::array<vk::ImageView, 1> {swapChainData.imageViews[0]},
+        std::array<vk::ImageView, 1> {swapChainData.imageViews[1]},
+        std::array<vk::ImageView, 1> {swapChainData.imageViews[2]},
+    };
+
+    auto w = swapChainData.swapchainExtent.width;
+    auto h = swapChainData.swapchainExtent.height;
+
+    framebuffers[0] = vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[0], w, h, 1));
+    framebuffers[1] = vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[1], w, h, 1));
+    framebuffers[2] = vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[2], w, h, 1));
+}
 
 int main()
 {
@@ -423,7 +486,6 @@ int main()
         vk::raii::CommandPool commandPool =
             vk::raii::CommandPool(device, {{vk::CommandPoolCreateFlagBits::eResetCommandBuffer}, graphicsTransferPresentQueueIndex});
         vk::raii::CommandBuffers commandBuffers(device, {commandPool, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
-        vk::raii::CommandBuffers blitImageCommandBuffers(device, {commandPool, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
 
         vk::raii::Queue graphicsTransferPresentQueue(device, graphicsTransferPresentQueueIndex, 0);
 
@@ -476,10 +538,12 @@ int main()
             std::array<vk::ImageView, 1> {swapChainData.imageViews[2]},
         };
 
+        auto w = swapChainData.swapchainExtent.width;
+        auto h = swapChainData.swapchainExtent.height;
         std::array<vk::raii::Framebuffer, MaxFramesInFlight> framebuffers {
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[0], extent.width, extent.height, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[1], extent.width, extent.height, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[2], extent.width, extent.height, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[0], w, h, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[1], w, h, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews[2], w, h, 1)),
         };
 
         //--------------------------------------------------------------------------------------
@@ -504,14 +568,34 @@ int main()
         while (!window.ShouldExit())
         {
             window.PollEvents();
-            std::cout << "\tFrame: " << CurrentFrameIndex << '\n';
 
-            auto result = device.waitForFences({drawFences[CurrentFrameIndex]}, VK_TRUE, std::numeric_limits<uint64_t>::max());
-            uint32_t imageIndex {};
-            std::tie(result, imageIndex) =
-                swapChainData.swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), imageAcquiredSemaphores[CurrentFrameIndex]);
-            assert(result == vk::Result::eSuccess);
+            auto waitResult           = device.waitForFences({drawFences[CurrentFrameIndex]}, VK_TRUE, TimeOut);
+            auto [result, imageIndex] = swapChainData.swapChain.acquireNextImage(TimeOut, imageAcquiredSemaphores[CurrentFrameIndex]);
             assert(imageIndex < swapChainData.images.size());
+
+            if (vk::Result::eErrorOutOfDateKHR == result)
+            {
+                RecreateSwapChain(
+                    CurrentFrameIndex,
+                    window.window,
+                    swapChainData,
+                    framebuffers,
+                    renderPass,
+                    physicalDevice,
+                    device,
+                    surfaceData.surface,
+                    window.extent,
+                    vk::ImageUsageFlagBits::eColorAttachment,
+                    &swapChainData.swapChain,
+                    graphicsTransferPresentQueueIndex,
+                    graphicsTransferPresentQueueIndex
+                );
+                continue;
+            }
+            else if (vk::Result::eSuccess != result && vk::Result::eSuboptimalKHR != result)
+            {
+                throw std::runtime_error("failed to acquire swap chain image");
+            }
 
             device.resetFences({drawFences[CurrentFrameIndex]});
 
@@ -521,15 +605,25 @@ int main()
             std::array<vk::ClearValue, 1> clearValues;
             clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
             vk::RenderPassBeginInfo renderPassBeginInfo(
-                renderPass, framebuffers[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), extent), clearValues
+                renderPass, framebuffers[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData.swapchainExtent), clearValues
             );
 
             cmd.begin({});
             cmd.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
             cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
-            cmd.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f));
-            cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), extent));
+            cmd.setViewport(
+                0,
+                vk::Viewport(
+                    0.0f,
+                    0.0f,
+                    static_cast<float>(swapChainData.swapchainExtent.width),
+                    static_cast<float>(swapChainData.swapchainExtent.height),
+                    0.0f,
+                    1.0f
+                )
+            );
+            cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData.swapchainExtent));
             cmd.draw(3, 1, 0, 0);
 
             cmd.endRenderPass();
@@ -547,7 +641,28 @@ int main()
             std::array<vk::Semaphore, 1> presentWait {renderFinishedSemaphore[CurrentFrameIndex]};
             std::array<vk::SwapchainKHR, 1> swapchains {swapChainData.swapChain};
             vk::PresentInfoKHR presentInfoKHR(presentWait, swapchains, imageIndex);
-            result = graphicsTransferPresentQueue.presentKHR(presentInfoKHR);
+            try
+            {
+                auto presentResult = graphicsTransferPresentQueue.presentKHR(presentInfoKHR);
+            }
+            catch (vk::SystemError& err)
+            {
+                RecreateSwapChain(
+                    CurrentFrameIndex,
+                    window.window,
+                    swapChainData,
+                    framebuffers,
+                    renderPass,
+                    physicalDevice,
+                    device,
+                    surfaceData.surface,
+                    window.extent,
+                    vk::ImageUsageFlagBits::eColorAttachment,
+                    &swapChainData.swapChain,
+                    graphicsTransferPresentQueueIndex,
+                    graphicsTransferPresentQueueIndex
+                );
+            }
 
             CurrentFrameIndex = (CurrentFrameIndex + 1) % MaxFramesInFlight;
         }
