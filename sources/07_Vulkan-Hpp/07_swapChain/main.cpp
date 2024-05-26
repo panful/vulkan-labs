@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <optional>
 
 static std::string AppName {"Vulkan-Hpp"};
 static std::string EngineName {"Vulkan-Hpp"};

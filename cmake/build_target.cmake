@@ -9,7 +9,7 @@ function(BuildTarget path)
         foreach(subdir ${subdirectories})
             get_filename_component(tar_name ${subdir} NAME)
             file(GLOB_RECURSE subdir_sources ${subdir}/*.cpp)
-            file(GLOB_RECURSE subdir_headers ${subdir}/*.h)
+            #file(GLOB_RECURSE subdir_headers ${subdir}/*.h)
             set(target_name "${number}_${tar_name}")
 
             # target
