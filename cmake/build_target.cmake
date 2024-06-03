@@ -27,7 +27,7 @@ function(BuildTarget path)
             # 确保 imgui 已经成功构建
             add_dependencies(${target_name} imgui)
 
-            install(TARGETS ${target_name} RUNTIME DESTINATION .)
+            # install(TARGETS ${target_name} RUNTIME DESTINATION .)
 
         endforeach(subdir ${subdirectories})
     endif()
