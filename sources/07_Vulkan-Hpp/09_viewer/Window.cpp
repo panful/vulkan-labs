@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 
 namespace {
 
@@ -103,14 +104,41 @@ vk::raii::Pipeline makeGraphicsPipelineForQuad(
 }
 } // namespace
 
+GLFWHelper::GLFWHelper()
+{
+    if (!glfwInit())
+    {
+        throw std::runtime_error("failed to init glfw");
+    }
+    glfwSetErrorCallback([](int error, const char* msg) { std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl; });
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+}
+
+GLFWHelper::~GLFWHelper()
+{
+    glfwTerminate();
+}
+
+GLFWHelper* GLFWHelper::GetInstance()
+{
+    static GLFWHelper helper {};
+    return &helper;
+}
+
+GLFWwindow* GLFWHelper::CreateWindow(const std::string& name, const vk::Extent2D& extent)
+{
+    return glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
+}
+
+void GLFWHelper::DestroyWindow(GLFWwindow* window)
+{
+    glfwDestroyWindow(window);
+}
+
 WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
     : extent(extent_)
 {
-    glfwInit();
-    glfwSetErrorCallback([](int error, const char* msg) { std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl; });
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-    window = glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
+    window = GLFWHelper::GetInstance()->CreateWindow(name, extent);
 
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
@@ -118,8 +146,7 @@ WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
 
 WindowHelper::~WindowHelper()
 {
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    GLFWHelper::GetInstance()->DestroyWindow(window);
 }
 
 vk::SurfaceKHR WindowHelper::InitSurface(const vk::raii::Instance& instance)
@@ -167,136 +194,19 @@ void WindowHelper::FramebufferResizeCallback(GLFWwindow* window, int width, int 
     app->extent = vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 }
 
+Window::Window(const std::shared_ptr<Device>& device, const std::string& name, const vk::Extent2D& extent)
+{
+    m_windowHelper = std::make_unique<WindowHelper>(name, extent);
+    m_device       = device;
+    m_windowHelper->InitSurface(m_device->GetInstance());
+    InitWindow();
+}
+
 Window::Window(const std::string& name, const vk::Extent2D& extent)
 {
     m_windowHelper = std::make_unique<WindowHelper>(name, extent);
     m_device       = std::make_shared<Device>(m_windowHelper);
-
-    m_swapChainData = SwapChainData(
-        m_device,
-        m_windowHelper->surfaceData.surface,
-        m_windowHelper->surfaceData.extent,
-        vk::ImageUsageFlagBits::eColorAttachment,
-        nullptr,
-        m_device->graphicsQueueIndex,
-        m_device->presentQueueIndex
-    );
-
-    m_numberOfFrames = m_swapChainData.numberOfImages;
-
-    viewer = std::make_unique<Viewer>(m_device, m_numberOfFrames, true, extent);
-
-    m_commandBuffers = vk::raii::CommandBuffers(
-        m_device->device, vk::CommandBufferAllocateInfo {m_device->commandPoolReset, vk::CommandBufferLevel::ePrimary, m_numberOfFrames}
-    );
-
-    vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
-    std::array colorAttachments {colorAttachment};
-    vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
-    std::array attachmentDescriptions {
-        vk::AttachmentDescription {
-                                   {},
-                                   m_swapChainData.colorFormat,
-                                   vk::SampleCountFlagBits::e1,
-                                   vk::AttachmentLoadOp::eClear,
-                                   vk::AttachmentStoreOp::eStore,
-                                   vk::AttachmentLoadOp::eDontCare,
-                                   vk::AttachmentStoreOp::eDontCare,
-                                   vk::ImageLayout::eUndefined,
-                                   vk::ImageLayout::ePresentSrcKHR
-        }
-    };
-
-    vk::RenderPassCreateInfo renderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpassDescription);
-    m_renderPass = vk::raii::RenderPass(m_device->device, renderPassCreateInfo);
-
-    //--------------------------------------------------------------------------------------
-    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../resources/shaders/07_08_quad_vert.spv");
-    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../resources/shaders/07_08_quad_frag.spv");
-    vk::raii::ShaderModule vertexShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
-    vk::raii::ShaderModule fragmentShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
-
-    std::array descriptorSetLayoutBindings {
-        vk::DescriptorSetLayoutBinding {0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment}
-    };
-    vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo({}, descriptorSetLayoutBindings);
-    m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device->device, descriptorSetLayoutCreateInfo);
-
-    std::array<vk::DescriptorSetLayout, 1> descriptorSetLayoursForPipeline {m_descriptorSetLayout};
-    m_pipelineLayout = vk::raii::PipelineLayout(m_device->device, vk::PipelineLayoutCreateInfo {{}, descriptorSetLayoursForPipeline});
-    vk::raii::PipelineCache pipelineCache(m_device->device, vk::PipelineCacheCreateInfo());
-
-    m_graphicsPipeline = makeGraphicsPipelineForQuad(
-        m_device->device,
-        pipelineCache,
-        vertexShaderModule,
-        nullptr,
-        fragmentShaderModule,
-        nullptr,
-        0,
-        {},
-        vk::FrontFace::eClockwise,
-        false,
-        m_pipelineLayout,
-        m_renderPass
-    );
-
-    //--------------------------------------------------------------------------------------
-    std::array descriptorPoolSizes {
-        vk::DescriptorPoolSize {vk::DescriptorType::eUniformBuffer,        m_numberOfFrames},
-        vk::DescriptorPoolSize {vk::DescriptorType::eCombinedImageSampler, m_numberOfFrames},
-    };
-
-    m_descriptorPool = vk::raii::DescriptorPool(
-        m_device->device, vk::DescriptorPoolCreateInfo {vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, m_numberOfFrames, descriptorPoolSizes}
-    );
-
-    std::vector<vk::DescriptorSetLayout> descriptorSetLayouts(m_numberOfFrames, m_descriptorSetLayout);
-
-    m_descriptorSets = vk::raii::DescriptorSets(m_device->device, vk::DescriptorSetAllocateInfo {m_descriptorPool, descriptorSetLayouts});
-
-    m_sampler = vk::raii::Sampler(
-        m_device->device,
-        vk::SamplerCreateInfo {
-            {},
-            vk::Filter::eLinear,
-            vk::Filter::eLinear,
-            vk::SamplerMipmapMode::eLinear,
-            vk::SamplerAddressMode::eRepeat,
-            vk::SamplerAddressMode::eRepeat,
-            vk::SamplerAddressMode::eRepeat,
-            0.0f,
-            false,
-            16.0f,
-            false,
-            vk::CompareOp::eNever,
-            0.0f,
-            0.0f,
-            vk::BorderColor::eFloatOpaqueBlack
-        }
-    );
-
-    UpdateDescriptorSets();
-
-    auto w = m_swapChainData.swapchainExtent.width;
-    auto h = m_swapChainData.swapchainExtent.height;
-    m_framebuffers.reserve(m_numberOfFrames);
-    for (uint32_t i = 0; i < m_numberOfFrames; ++i)
-    {
-        std::array<vk::ImageView, 1> imageViews {m_swapChainData.imageViews[i]};
-        m_framebuffers.emplace_back(vk::raii::Framebuffer(m_device->device, vk::FramebufferCreateInfo({}, m_renderPass, imageViews, w, h, 1)));
-    }
-
-    //--------------------------------------------------------------------------------------
-    m_drawFences.reserve(m_numberOfFrames);
-    m_renderFinishedSemaphores.reserve(m_numberOfFrames);
-    m_imageAcquiredSemaphores.reserve(m_numberOfFrames);
-    for (uint32_t i = 0; i < m_numberOfFrames; ++i)
-    {
-        m_drawFences.emplace_back(vk::raii::Fence(m_device->device, {vk::FenceCreateFlagBits::eSignaled}));
-        m_renderFinishedSemaphores.emplace_back(vk::raii::Semaphore(m_device->device, vk::SemaphoreCreateInfo()));
-        m_imageAcquiredSemaphores.emplace_back(vk::raii::Semaphore(m_device->device, vk::SemaphoreCreateInfo()));
-    }
+    InitWindow();
 }
 
 Window::~Window()
@@ -447,4 +357,138 @@ void Window::RecreateSwapChain()
         std::array<vk::ImageView, 1> imageViews {m_swapChainData.imageViews[i]};
         m_framebuffers[i] = vk::raii::Framebuffer(m_device->device, vk::FramebufferCreateInfo({}, m_renderPass, imageViews, w, h, 1));
     }
+}
+
+void Window::InitWindow()
+{
+    m_swapChainData = SwapChainData(
+        m_device,
+        m_windowHelper->surfaceData.surface,
+        m_windowHelper->surfaceData.extent,
+        vk::ImageUsageFlagBits::eColorAttachment,
+        nullptr,
+        m_device->graphicsQueueIndex,
+        m_device->presentQueueIndex
+    );
+
+    m_numberOfFrames = m_swapChainData.numberOfImages;
+
+    viewer = std::make_unique<Viewer>(m_device, m_numberOfFrames, true, m_windowHelper->surfaceData.extent);
+
+    m_commandBuffers = vk::raii::CommandBuffers(
+        m_device->device, vk::CommandBufferAllocateInfo {m_device->commandPoolReset, vk::CommandBufferLevel::ePrimary, m_numberOfFrames}
+    );
+
+    vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
+    std::array colorAttachments {colorAttachment};
+    vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
+    std::array attachmentDescriptions {
+        vk::AttachmentDescription {
+                                   {},
+                                   m_swapChainData.colorFormat,
+                                   vk::SampleCountFlagBits::e1,
+                                   vk::AttachmentLoadOp::eClear,
+                                   vk::AttachmentStoreOp::eStore,
+                                   vk::AttachmentLoadOp::eDontCare,
+                                   vk::AttachmentStoreOp::eDontCare,
+                                   vk::ImageLayout::eUndefined,
+                                   vk::ImageLayout::ePresentSrcKHR
+        }
+    };
+
+    vk::RenderPassCreateInfo renderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpassDescription);
+    m_renderPass = vk::raii::RenderPass(m_device->device, renderPassCreateInfo);
+
+    //--------------------------------------------------------------------------------------
+    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../resources/shaders/07_08_quad_vert.spv");
+    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../resources/shaders/07_08_quad_frag.spv");
+    vk::raii::ShaderModule vertexShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
+    vk::raii::ShaderModule fragmentShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
+
+    std::array descriptorSetLayoutBindings {
+        vk::DescriptorSetLayoutBinding {0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment}
+    };
+    vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo({}, descriptorSetLayoutBindings);
+    m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device->device, descriptorSetLayoutCreateInfo);
+
+    std::array<vk::DescriptorSetLayout, 1> descriptorSetLayoursForPipeline {m_descriptorSetLayout};
+    m_pipelineLayout = vk::raii::PipelineLayout(m_device->device, vk::PipelineLayoutCreateInfo {{}, descriptorSetLayoursForPipeline});
+    vk::raii::PipelineCache pipelineCache(m_device->device, vk::PipelineCacheCreateInfo());
+
+    m_graphicsPipeline = makeGraphicsPipelineForQuad(
+        m_device->device,
+        pipelineCache,
+        vertexShaderModule,
+        nullptr,
+        fragmentShaderModule,
+        nullptr,
+        0,
+        {},
+        vk::FrontFace::eClockwise,
+        false,
+        m_pipelineLayout,
+        m_renderPass
+    );
+
+    //--------------------------------------------------------------------------------------
+    std::array descriptorPoolSizes {
+        vk::DescriptorPoolSize {vk::DescriptorType::eUniformBuffer,        m_numberOfFrames},
+        vk::DescriptorPoolSize {vk::DescriptorType::eCombinedImageSampler, m_numberOfFrames},
+    };
+
+    m_descriptorPool = vk::raii::DescriptorPool(
+        m_device->device, vk::DescriptorPoolCreateInfo {vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, m_numberOfFrames, descriptorPoolSizes}
+    );
+
+    std::vector<vk::DescriptorSetLayout> descriptorSetLayouts(m_numberOfFrames, m_descriptorSetLayout);
+
+    m_descriptorSets = vk::raii::DescriptorSets(m_device->device, vk::DescriptorSetAllocateInfo {m_descriptorPool, descriptorSetLayouts});
+
+    m_sampler = vk::raii::Sampler(
+        m_device->device,
+        vk::SamplerCreateInfo {
+            {},
+            vk::Filter::eLinear,
+            vk::Filter::eLinear,
+            vk::SamplerMipmapMode::eLinear,
+            vk::SamplerAddressMode::eRepeat,
+            vk::SamplerAddressMode::eRepeat,
+            vk::SamplerAddressMode::eRepeat,
+            0.0f,
+            false,
+            16.0f,
+            false,
+            vk::CompareOp::eNever,
+            0.0f,
+            0.0f,
+            vk::BorderColor::eFloatOpaqueBlack
+        }
+    );
+
+    UpdateDescriptorSets();
+
+    auto w = m_swapChainData.swapchainExtent.width;
+    auto h = m_swapChainData.swapchainExtent.height;
+    m_framebuffers.reserve(m_numberOfFrames);
+    for (uint32_t i = 0; i < m_numberOfFrames; ++i)
+    {
+        std::array<vk::ImageView, 1> imageViews {m_swapChainData.imageViews[i]};
+        m_framebuffers.emplace_back(vk::raii::Framebuffer(m_device->device, vk::FramebufferCreateInfo({}, m_renderPass, imageViews, w, h, 1)));
+    }
+
+    //--------------------------------------------------------------------------------------
+    m_drawFences.reserve(m_numberOfFrames);
+    m_renderFinishedSemaphores.reserve(m_numberOfFrames);
+    m_imageAcquiredSemaphores.reserve(m_numberOfFrames);
+    for (uint32_t i = 0; i < m_numberOfFrames; ++i)
+    {
+        m_drawFences.emplace_back(vk::raii::Fence(m_device->device, {vk::FenceCreateFlagBits::eSignaled}));
+        m_renderFinishedSemaphores.emplace_back(vk::raii::Semaphore(m_device->device, vk::SemaphoreCreateInfo()));
+        m_imageAcquiredSemaphores.emplace_back(vk::raii::Semaphore(m_device->device, vk::SemaphoreCreateInfo()));
+    }
+}
+
+std::shared_ptr<Device> Window::GetDevice() const noexcept
+{
+    return m_device;
 }

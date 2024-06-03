@@ -167,3 +167,8 @@ void Device::CreateCommandPools() noexcept
     commandPoolReset     = vk::raii::CommandPool(device, {{vk::CommandPoolCreateFlagBits::eResetCommandBuffer}, graphicsQueueIndex});
     commandPoolTransient = vk::raii::CommandPool(device, {{vk::CommandPoolCreateFlagBits::eTransient}, graphicsQueueIndex});
 }
+
+const vk::raii::Instance& Device::GetInstance() const noexcept
+{
+    return m_instance;
+}

@@ -11,6 +11,21 @@ struct GLFWwindow;
 struct Device;
 class Viewer;
 
+class GLFWHelper
+{
+private:
+    GLFWHelper();
+    ~GLFWHelper();
+
+    GLFWHelper(const GLFWHelper&)            = delete;
+    GLFWHelper& operator=(const GLFWHelper&) = delete;
+
+public:
+    static GLFWHelper* GetInstance();
+    GLFWwindow* CreateWindow(const std::string& name, const vk::Extent2D& extent);
+    void DestroyWindow(GLFWwindow* window);
+};
+
 struct WindowHelper
 {
     WindowHelper(const std::string& name, const vk::Extent2D& extent);
@@ -40,14 +55,17 @@ struct WindowHelper
 struct Window
 {
     Window(const std::string& name, const vk::Extent2D& extent);
+    Window(const std::shared_ptr<Device>& device, const std::string& name, const vk::Extent2D& extent);
     ~Window();
 
     void Run();
 
-    void UpdateDescriptorSets();
+    std::shared_ptr<Device> GetDevice() const noexcept;
 
 private:
+    void UpdateDescriptorSets();
     void RecreateSwapChain();
+    void InitWindow();
 
     std::shared_ptr<Device> m_device {};
     std::unique_ptr<WindowHelper> m_windowHelper {};

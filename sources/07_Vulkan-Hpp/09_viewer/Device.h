@@ -13,6 +13,8 @@ struct Device
 
     explicit Device(std::unique_ptr<WindowHelper>& windowHelper);
 
+    const vk::raii::Instance& GetInstance() const noexcept;
+
 private:
     void CreateInstance() noexcept;
     void CreateDebugUtilsMessengerEXT() noexcept;
