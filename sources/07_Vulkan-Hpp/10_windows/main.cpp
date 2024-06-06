@@ -529,10 +529,13 @@ int main()
         assert(swapChainData2.imageViews.size() == MaxFramesInFlight);
 
         //--------------------------------------------------------------------------------------
-        vk::raii::CommandPool commandPool =
+        vk::raii::CommandPool commandPool1 =
             vk::raii::CommandPool(device, {{vk::CommandPoolCreateFlagBits::eResetCommandBuffer}, graphicsTransferPresentQueueIndex});
-        vk::raii::CommandBuffers commandBuffers1(device, {commandPool, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
-        vk::raii::CommandBuffers commandBuffers2(device, {commandPool, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
+        vk::raii::CommandPool commandPool2 =
+            vk::raii::CommandPool(device, {{vk::CommandPoolCreateFlagBits::eResetCommandBuffer}, graphicsTransferPresentQueueIndex});
+
+        vk::raii::CommandBuffers commandBuffers1(device, {commandPool1, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
+        vk::raii::CommandBuffers commandBuffers2(device, {commandPool2, vk::CommandBufferLevel::ePrimary, MaxFramesInFlight});
 
         vk::raii::Queue graphicsTransferPresentQueue(device, graphicsTransferPresentQueueIndex, 0);
 
@@ -674,73 +677,112 @@ int main()
             auto [result2, imageIndex2] = swapChainData2.swapChain.acquireNextImage(TimeOut, imageAcquiredSemaphores2[CurrentFrameIndex]);
             assert(imageIndex2 < swapChainData2.images.size());
 
-            if (vk::Result::eSuccess != result1 || vk::Result::eSuccess != result2)
+            if (vk::Result::eErrorOutOfDateKHR == result1)
             {
-                throw std::runtime_error("failed to acquire swap chain image");
+                RecreateSwapChain(
+                    CurrentFrameIndex,
+                    window1.window,
+                    swapChainData1,
+                    framebuffers1,
+                    renderPass1,
+                    physicalDevice,
+                    device,
+                    surfaceData1.surface,
+                    vk::ImageUsageFlagBits::eColorAttachment,
+                    &swapChainData1.swapChain,
+                    graphicsTransferPresentQueueIndex,
+                    graphicsTransferPresentQueueIndex
+                );
+                continue;
+            }
+            if (vk::Result::eErrorOutOfDateKHR == result2)
+            {
+                RecreateSwapChain(
+                    CurrentFrameIndex,
+                    window2.window,
+                    swapChainData2,
+                    framebuffers2,
+                    renderPass2,
+                    physicalDevice,
+                    device,
+                    surfaceData2.surface,
+                    vk::ImageUsageFlagBits::eColorAttachment,
+                    &swapChainData2.swapChain,
+                    graphicsTransferPresentQueueIndex,
+                    graphicsTransferPresentQueueIndex
+                );
             }
 
             device.resetFences({drawFences1[CurrentFrameIndex]});
             device.resetFences({drawFences2[CurrentFrameIndex]});
 
             auto&& cmd1 = commandBuffers1[CurrentFrameIndex];
-            cmd1.reset();
+            std::thread recordThread1([&]() {
+                cmd1.reset();
 
-            std::array<vk::ClearValue, 1> clearValues1;
-            clearValues1[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
-            vk::RenderPassBeginInfo renderPassBeginInfo1(
-                renderPass1, framebuffers1[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent), clearValues1
-            );
+                std::array<vk::ClearValue, 1> clearValues1;
+                clearValues1[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+                vk::RenderPassBeginInfo renderPassBeginInfo1(
+                    renderPass1, framebuffers1[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent), clearValues1
+                );
 
-            cmd1.begin({});
-            cmd1.beginRenderPass(renderPassBeginInfo1, vk::SubpassContents::eInline);
+                cmd1.begin({});
+                cmd1.beginRenderPass(renderPassBeginInfo1, vk::SubpassContents::eInline);
 
-            cmd1.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline1);
-            cmd1.setViewport(
-                0,
-                vk::Viewport(
-                    0.0f,
-                    0.0f,
-                    static_cast<float>(swapChainData1.swapchainExtent.width),
-                    static_cast<float>(swapChainData1.swapchainExtent.height),
-                    0.0f,
-                    1.0f
-                )
-            );
-            cmd1.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent));
-            cmd1.draw(3, 1, 0, 0);
+                cmd1.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline1);
+                cmd1.setViewport(
+                    0,
+                    vk::Viewport(
+                        0.0f,
+                        0.0f,
+                        static_cast<float>(swapChainData1.swapchainExtent.width),
+                        static_cast<float>(swapChainData1.swapchainExtent.height),
+                        0.0f,
+                        1.0f
+                    )
+                );
+                cmd1.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent));
+                cmd1.draw(3, 1, 0, 0);
 
-            cmd1.endRenderPass();
-            cmd1.end();
+                cmd1.endRenderPass();
+                cmd1.end();
+            });
 
             auto&& cmd2 = commandBuffers2[CurrentFrameIndex];
-            cmd2.reset();
+            std::thread recordThread2([&]() {
+                cmd2.reset();
 
-            std::array<vk::ClearValue, 1> clearValues2;
-            clearValues2[0].color = vk::ClearColorValue(0.3f, 0.2f, 0.3f, 1.f);
-            vk::RenderPassBeginInfo renderPassBeginInfo2(
-                renderPass2, framebuffers2[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent), clearValues2
-            );
+                std::array<vk::ClearValue, 1> clearValues2;
+                clearValues2[0].color = vk::ClearColorValue(0.3f, 0.2f, 0.3f, 1.f);
+                vk::RenderPassBeginInfo renderPassBeginInfo2(
+                    renderPass2, framebuffers2[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent), clearValues2
+                );
 
-            cmd2.begin({});
-            cmd2.beginRenderPass(renderPassBeginInfo2, vk::SubpassContents::eInline);
+                cmd2.begin({});
+                cmd2.beginRenderPass(renderPassBeginInfo2, vk::SubpassContents::eInline);
 
-            cmd2.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline2);
-            cmd2.setViewport(
-                0,
-                vk::Viewport(
-                    0.0f,
-                    0.0f,
-                    static_cast<float>(swapChainData2.swapchainExtent.width),
-                    static_cast<float>(swapChainData2.swapchainExtent.height),
-                    0.0f,
-                    1.0f
-                )
-            );
-            cmd2.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent));
-            cmd2.draw(3, 1, 0, 0);
+                cmd2.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline2);
+                cmd2.setViewport(
+                    0,
+                    vk::Viewport(
+                        0.0f,
+                        0.0f,
+                        static_cast<float>(swapChainData2.swapchainExtent.width),
+                        static_cast<float>(swapChainData2.swapchainExtent.height),
+                        0.0f,
+                        1.0f
+                    )
+                );
+                cmd2.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent));
+                cmd2.draw(3, 1, 0, 0);
 
-            cmd2.endRenderPass();
-            cmd2.end();
+                cmd2.endRenderPass();
+                cmd2.end();
+            });
+
+            // 多个线程同时记录 commandBuffer 时，commandBuffer 必须由不同的 commandPool 分配
+            recordThread1.join();
+            recordThread2.join();
 
             //--------------------------------------------------------------------------------------
             std::array<vk::CommandBuffer, 1> drawCommandBuffers1 {cmd1};
