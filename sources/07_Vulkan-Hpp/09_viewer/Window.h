@@ -4,6 +4,7 @@
 #include "SwapChainData.h"
 #include <memory>
 #include <vector>
+#include <mutex>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -19,6 +20,8 @@ private:
 
     GLFWHelper(const GLFWHelper&)            = delete;
     GLFWHelper& operator=(const GLFWHelper&) = delete;
+
+    std::mutex mutex {};
 
 public:
     static GLFWHelper* GetInstance();

@@ -6,7 +6,7 @@
  *
  */
 
-#define TEST1
+#define TEST4
 
 #ifdef TEST1
 
@@ -125,8 +125,6 @@ int main()
 
 int main()
 {
-    system("chcp 65001");
-
     std::thread t1([]() {
         auto window = std::make_unique<Window>("test", vk::Extent2D {800, 600});
         auto actor  = std::make_shared<Actor>();
@@ -140,10 +138,7 @@ int main()
         window->Run();
     });
 
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    // 不能在不同的线程中使用 vkQueueSubmit
-    // XXX 不能在不同线程共享 Device
-    // 第一个窗口线程执行完之后立即执行第二个窗口线程，可能会出现错误：glfw: (65544) Win32: Failed to register window class: 类已存在。
+    // 不能在不同的线程中同时使用 vkQueueSubmit // TODO: 暂不支持多线程共享 Device 
 
     std::thread t2([]() {
         auto window = std::make_unique<Window>("test2", vk::Extent2D {800, 600});

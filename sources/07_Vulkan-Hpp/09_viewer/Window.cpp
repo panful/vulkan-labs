@@ -127,6 +127,7 @@ GLFWHelper* GLFWHelper::GetInstance()
 
 GLFWwindow* GLFWHelper::CreateWindow(const std::string& name, const vk::Extent2D& extent)
 {
+    std::lock_guard lk(mutex);
     return glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
 }
 
