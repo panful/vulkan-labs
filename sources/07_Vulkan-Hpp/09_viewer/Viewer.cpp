@@ -66,11 +66,16 @@ Viewer::Viewer(const std::shared_ptr<Device>& device, const uint32_t numberOfFra
         }
     }
 
+    m_depthImagedata = DepthBufferData(m_device, m_depthFormat, extent);
+
     //--------------------------------------------------------------------------------------
     vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
+    vk::AttachmentReference depthAttachment(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
     std::array colorAttachments {colorAttachment};
-    vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
-    std::array<vk::AttachmentDescription, 1> attachmentDescriptions {
+    vk::SubpassDescription subpassDescription(
+        vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, &depthAttachment, {}
+    );
+    std::array attachmentDescriptions {
         vk::AttachmentDescription {
                                    {},
                                    m_colorFormat, vk::SampleCountFlagBits::e1,
@@ -80,6 +85,16 @@ Viewer::Viewer(const std::shared_ptr<Device>& device, const uint32_t numberOfFra
                                    vk::AttachmentStoreOp::eDontCare,
                                    vk::ImageLayout::eUndefined,
                                    m_useSwapChain ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::eTransferSrcOptimal
+        },
+        vk::AttachmentDescription {
+                                   {},
+                                   m_depthFormat, vk::SampleCountFlagBits::e1,
+                                   vk::AttachmentLoadOp::eClear,
+                                   vk::AttachmentStoreOp::eDontCare,
+                                   vk::AttachmentLoadOp::eDontCare,
+                                   vk::AttachmentStoreOp::eDontCare,
+                                   vk::ImageLayout::eUndefined,
+                                   vk::ImageLayout::eDepthStencilAttachmentOptimal
         }
     };
 
@@ -98,7 +113,7 @@ Viewer::Viewer(const std::shared_ptr<Device>& device, const uint32_t numberOfFra
     m_framebuffers.reserve(numberOfFrames);
     for (uint32_t i = 0; i < numberOfFrames; ++i)
     {
-        std::array<vk::ImageView, 1> imageViews {m_colorImageDatas[i].imageView};
+        std::array<vk::ImageView, 2> imageViews {m_colorImageDatas[i].imageView, m_depthImagedata.imageView};
 
         m_framebuffers.emplace_back(
             vk::raii::Framebuffer(m_device->device, vk::FramebufferCreateInfo({}, renderPass, imageViews, extent.width, extent.height, 1))
@@ -169,6 +184,8 @@ void Viewer::ResizeFramebuffer(const vk::Extent2D& extent_)
             vk::ImageAspectFlagBits::eColor
         ));
 
+        m_depthImagedata = DepthBufferData(m_device, m_depthFormat, extent);
+
         if (!m_useSwapChain)
         {
             m_saveImageDatas.emplace_back(ImageData(
@@ -188,7 +205,7 @@ void Viewer::ResizeFramebuffer(const vk::Extent2D& extent_)
     m_framebuffers.clear();
     for (uint32_t i = 0; i < numberOfFrames; ++i)
     {
-        std::array<vk::ImageView, 1> imageViews {m_colorImageDatas[i].imageView};
+        std::array<vk::ImageView, 2> imageViews {m_colorImageDatas[i].imageView, m_depthImagedata.imageView};
 
         m_framebuffers.emplace_back(
             vk::raii::Framebuffer(m_device->device, vk::FramebufferCreateInfo({}, renderPass, imageViews, extent.width, extent.height, 1))
@@ -203,8 +220,9 @@ void Viewer::AddView(const std::shared_ptr<View>& view)
 
 void Viewer::Record(const vk::raii::CommandBuffer& commandBuffer)
 {
-    std::array<vk::ClearValue, 1> clearValues;
-    clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+    std::array<vk::ClearValue, 2> clearValues;
+    clearValues[0].color        = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+    clearValues[1].depthStencil = vk::ClearDepthStencilValue(1.f, 0);
     vk::RenderPassBeginInfo renderPassBeginInfo(renderPass, m_framebuffers[currentFrameIndex], vk::Rect2D({0, 0}, extent), clearValues);
     commandBuffer.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
@@ -261,8 +279,9 @@ void Viewer::Render()
     cmd.reset();
     cmd.begin({});
 
-    std::array<vk::ClearValue, 1> clearValues;
-    clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+    std::array<vk::ClearValue, 2> clearValues;
+    clearValues[0].color        = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+    clearValues[1].depthStencil = vk::ClearDepthStencilValue(1.f, 0);
     vk::RenderPassBeginInfo renderPassBeginInfo(renderPass, m_framebuffers[currentFrameIndex], vk::Rect2D({0, 0}, extent), clearValues);
     cmd.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 

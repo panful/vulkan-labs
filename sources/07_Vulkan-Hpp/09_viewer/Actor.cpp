@@ -9,7 +9,7 @@ namespace {
 
 struct Vertex
 {
-    glm::vec2 pos {0.f, 0.f};
+    glm::vec3 pos {0.f, 0.f, 0.f};
     glm::vec3 color {0.f, 0.f, 0.f};
 };
 
@@ -21,16 +21,25 @@ struct UniformBufferObject
 };
 
 // clang-format off
-const std::vector<Vertex> vertices {
-    {{-0.5f, -0.5f}, {1.f, 0.f, 0.f}},
-    {{-0.5f,  0.5f}, {1.f, 0.f, 0.f}},
-    {{ 0.5f,  0.5f}, {0.f, 1.f, 0.f}},
-    {{ 0.5f, -0.5f}, {0.f, 1.f, 0.f}},
+const std::vector<Vertex> vertices  {
+    {{-0.5f,  0.5f, -0.5f}, {1.f, 0.f, 0.f}},
+    {{ 0.5f,  0.5f, -0.5f}, {1.f, 1.f, 0.f}},
+    {{ 0.5f, -0.5f, -0.5f}, {0.f, 1.f, 0.f}},
+    {{-0.5f, -0.5f, -0.5f}, {0.f, 1.f, 1.f}},
+
+    {{-0.5f,  0.5f,  0.5f}, {0.f, 0.f, 1.f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.f, 0.f, 1.f}},
+    {{ 0.5f, -0.5f,  0.5f}, {0.f, 0.f, 0.f}},
+    {{-0.5f, -0.5f,  0.5f}, {1.f, 1.f, 1.f}},
 };
 
-const std::vector<uint16_t> indices {
-    0, 1, 2,
-    0, 2, 3,
+const std::vector<uint16_t> indices{
+    0, 1, 2, 0, 2, 3, // 前
+    1, 5, 6, 1, 6, 2, // 右
+    5, 4, 7, 5, 7, 6, // 后
+    4, 0, 3, 4, 3, 7, // 左
+    3, 2, 6, 3, 6, 7, // 上
+    4, 5, 1, 4, 1, 0, // 下
 };
 
 // clang-format on
@@ -59,7 +68,7 @@ vk::raii::Pipeline makeGraphicsPipelineForViewer(
         vk::VertexInputBindingDescription {0, sizeof(Vertex), vk::VertexInputRate::eVertex}
     };
     std::array inputAttribute {
-        vk::VertexInputAttributeDescription {0, 0, vk::Format::eR32G32Sfloat,    offsetof(Vertex, Vertex::pos)  },
+        vk::VertexInputAttributeDescription {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, Vertex::pos)  },
         vk::VertexInputAttributeDescription {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, Vertex::color)}
     };
 
@@ -146,8 +155,8 @@ void Actor::Update(const std::shared_ptr<Device> device, const Viewer* viewer)
     }
     m_needUpdate = false;
 
-    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../resources/shaders/01_03_base_vert.spv");
-    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../resources/shaders/01_03_base_frag.spv");
+    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../resources/shaders/07_09_base_vert.spv");
+    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../resources/shaders/07_09_base_frag.spv");
     vk::raii::ShaderModule vertexShaderModule(device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
     vk::raii::ShaderModule fragmentShaderModule(device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 
@@ -171,7 +180,7 @@ void Actor::Update(const std::shared_ptr<Device> device, const Viewer* viewer)
         0,
         {},
         vk::FrontFace::eClockwise,
-        false,
+        true,
         m_pipelineLayout,
         viewer->renderPass
     );
@@ -220,7 +229,9 @@ void Actor::Render(const vk::raii::CommandBuffer& cmd, const uint32_t currentFra
     count++;
 
     UniformBufferObject defaultUBO {};
-    defaultUBO.model = glm::rotate(glm::mat4(1.f), glm::radians(3.f * count), glm::vec3(0.f, 0.f, 1.f));
+    defaultUBO.model = glm::rotate(glm::mat4(1.f), glm::radians(.05f * count), glm::vec3(1.f, 1.f, 0.f));
+    defaultUBO.view  = glm::lookAt(glm::vec3(0.f, 0.f, 3.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
+    defaultUBO.proj  = glm::perspective(glm::radians(45.f), 8 / 6.f, 0.1f, 100.f);
     Utils::CopyToDevice(m_uniformBufferObjects[currentFrameIndex].deviceMemory, defaultUBO);
 
     cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_graphicsPipeline);

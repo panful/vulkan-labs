@@ -35,3 +35,10 @@ struct ImageData
     vk::raii::Image image               = nullptr;
     vk::raii::ImageView imageView       = nullptr;
 };
+
+struct DepthBufferData : public ImageData
+{
+    DepthBufferData(std::shared_ptr<Device> device, vk::Format format, vk::Extent2D const& extent);
+
+    DepthBufferData(std::nullptr_t nullptrValue);
+};

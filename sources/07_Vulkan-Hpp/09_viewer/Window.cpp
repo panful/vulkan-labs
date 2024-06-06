@@ -314,6 +314,11 @@ void Window::Run()
     }
 }
 
+void Window::AddView(const std::shared_ptr<View>& view)
+{
+    viewer->AddView(view);
+}
+
 void Window::UpdateDescriptorSets()
 {
     auto viewer_imageViews = viewer->GetImageViews();

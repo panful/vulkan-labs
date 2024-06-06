@@ -160,3 +160,22 @@ void ImageData::setImageLayout(
     );
     return commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier);
 }
+
+DepthBufferData::DepthBufferData(std::shared_ptr<Device> device, vk::Format format, vk::Extent2D const& extent)
+    : ImageData(
+          device,
+          format,
+          extent,
+          vk::ImageTiling::eOptimal,
+          vk::ImageUsageFlagBits::eDepthStencilAttachment,
+          vk::ImageLayout::eUndefined,
+          vk::MemoryPropertyFlagBits::eDeviceLocal,
+          vk::ImageAspectFlagBits::eDepth
+      )
+{
+}
+
+DepthBufferData::DepthBufferData(std::nullptr_t nullptrValue)
+    : ImageData(nullptrValue)
+{
+}

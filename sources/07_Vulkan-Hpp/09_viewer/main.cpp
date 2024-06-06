@@ -6,7 +6,7 @@
  *
  */
 
-#define TEST4
+#define TEST1
 
 #ifdef TEST1
 
@@ -23,11 +23,11 @@ int main()
     auto window = std::make_unique<Window>("test", vk::Extent2D {800, 600});
     auto actor  = std::make_shared<Actor>();
     auto view   = std::make_shared<View>();
-    view->SetViewport({.1, .1, .8, .8});
+    view->SetViewport({.05, .05, .9, .9});
     view->SetBackground({.3f, .2f, .1f, 1.f});
     view->AddActor(actor);
 
-    window->viewer->AddView(view);
+    window->AddView(view);
     window->Run();
 
     std::cout << "Success\n";
@@ -57,8 +57,8 @@ int main()
     view->SetBackground({.3f, .2f, .1f, 1.f});
     view->AddActor(actor);
 
-    window1->viewer->AddView(view);
-    window2->viewer->AddView(view);
+    window1->AddView(view);
+    window2->AddView(view);
 
     window1->Run();
     window2->Run();
@@ -134,11 +134,11 @@ int main()
         view->SetBackground({.3f, .2f, .1f, 1.f});
         view->AddActor(actor);
 
-        window->viewer->AddView(view);
+        window->AddView(view);
         window->Run();
     });
 
-    // 不能在不同的线程中同时使用 vkQueueSubmit // TODO: 暂不支持多线程共享 Device 
+    // 不能在不同的线程中同时使用 vkQueueSubmit // TODO: 暂不支持多线程共享 Device
 
     std::thread t2([]() {
         auto window = std::make_unique<Window>("test2", vk::Extent2D {800, 600});
@@ -149,7 +149,7 @@ int main()
         view->SetBackground({.3f, .2f, .1f, 1.f});
         view->AddActor(actor);
 
-        window->viewer->AddView(view);
+        window->AddView(view);
         window->Run();
     });
 

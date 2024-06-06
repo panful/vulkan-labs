@@ -41,11 +41,14 @@ private:
     vk::raii::RenderPass renderPass {nullptr};
 
     vk::Format m_colorFormat {vk::Format::eB8G8R8A8Unorm};
+    vk::Format m_depthFormat {vk::Format::eD16Unorm};
+
     bool m_useSwapChain {false};
     bool m_supportBlit {false};
 
     std::vector<ImageData> m_colorImageDatas {};
     std::vector<ImageData> m_saveImageDatas {};
+    DepthBufferData m_depthImagedata {nullptr};
 
     std::vector<vk::raii::Framebuffer> m_framebuffers {};
 

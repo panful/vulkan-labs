@@ -3,14 +3,15 @@
 #include "SurfaceData.h"
 #include "SwapChainData.h"
 #include <memory>
-#include <vector>
 #include <mutex>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 struct GLFWwindow;
 struct Device;
 class Viewer;
+class View;
 
 class GLFWHelper
 {
@@ -62,6 +63,7 @@ struct Window
     ~Window();
 
     void Run();
+    void AddView(const std::shared_ptr<View>& view);
 
     std::shared_ptr<Device> GetDevice() const noexcept;
 
@@ -79,7 +81,6 @@ private:
     uint32_t m_numberOfFrames {0};
     uint32_t m_currentFrameIndex {0};
 
-public:
     std::unique_ptr<Viewer> viewer {};
 
 private:
