@@ -1,6 +1,11 @@
 #include "View.h"
 #include "Viewer.h"
 
+View::View()
+    : m_camera(std::make_unique<Camera>())
+{
+}
+
 void View::AddActor(const std::shared_ptr<Actor>& actor)
 {
     m_actors.emplace_back(actor);
@@ -35,9 +40,11 @@ void View::Render(const vk::raii::CommandBuffer& commandBuffer, const Viewer* vi
     commandBuffer.setScissor(0, vk::Rect2D(offset, extent));
     commandBuffer.clearAttachments(attachment, rect);
 
+    auto aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+
     for (const auto& actor : m_actors)
     {
-        actor->Render(commandBuffer, viewer->currentFrameIndex);
+        actor->Render(commandBuffer, viewer->currentFrameIndex, m_camera->GetViewMatrix(), m_camera->GetProjectMatrix(aspect));
     }
 }
 

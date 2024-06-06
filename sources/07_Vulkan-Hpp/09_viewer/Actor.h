@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BufferData.h"
+#include <glm/glm.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 struct Device;
@@ -10,7 +11,7 @@ class Actor
 {
 public:
     void Update(const std::shared_ptr<Device> device, const Viewer* viewer);
-    void Render(const vk::raii::CommandBuffer& cmd, const uint32_t currentFrameIndex);
+    void Render(const vk::raii::CommandBuffer& cmd, const uint32_t currentFrameIndex, const glm::mat4& viewMat, const glm::mat4& projMat);
 
 private:
     bool m_needUpdate {true};

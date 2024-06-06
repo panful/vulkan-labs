@@ -223,15 +223,15 @@ void Actor::Update(const std::shared_ptr<Device> device, const Viewer* viewer)
     }
 }
 
-void Actor::Render(const vk::raii::CommandBuffer& cmd, const uint32_t currentFrameIndex)
+void Actor::Render(const vk::raii::CommandBuffer& cmd, const uint32_t currentFrameIndex, const glm::mat4& viewMat, const glm::mat4& projMat)
 {
     static int count = 0;
     count++;
 
     UniformBufferObject defaultUBO {};
     defaultUBO.model = glm::rotate(glm::mat4(1.f), glm::radians(.05f * count), glm::vec3(1.f, 1.f, 0.f));
-    defaultUBO.view  = glm::lookAt(glm::vec3(0.f, 0.f, 3.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
-    defaultUBO.proj  = glm::perspective(glm::radians(45.f), 8 / 6.f, 0.1f, 100.f);
+    defaultUBO.view  = viewMat;
+    defaultUBO.proj  = projMat;
     Utils::CopyToDevice(m_uniformBufferObjects[currentFrameIndex].deviceMemory, defaultUBO);
 
     cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, m_graphicsPipeline);
