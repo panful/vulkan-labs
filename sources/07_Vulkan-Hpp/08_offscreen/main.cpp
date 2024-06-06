@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <optional>
 
 static std::string AppName {"Vulkan-Hpp"};
 static std::string EngineName {"Vulkan-Hpp"};
@@ -868,7 +869,7 @@ int main()
             {
                 if ((queueFamilyProperties[j].queueFlags & vk::QueueFlagBits::eGraphics)
                     && (queueFamilyProperties[j].queueFlags & vk::QueueFlagBits::eTransfer)
-                    && physicalDevices[i].getSurfaceSupportKHR(j, surfaceData.surface))
+                    && physicalDevices[i].getSurfaceSupportKHR(static_cast<uint32_t>(j), surfaceData.surface))
                 {
                     optUsePhysicalDeviceIndex         = static_cast<uint32_t>(i);
                     graphicsTransferPresentQueueIndex = static_cast<uint32_t>(j);
@@ -1128,6 +1129,8 @@ int main()
                     graphicsTransferPresentQueueIndex,
                     graphicsTransferPresentQueueIndex
                 );
+
+                std::cout << err.what() << std::endl;
             }
 
             CurrentFrameIndex = (CurrentFrameIndex + 1) % MaxFramesInFlight;
