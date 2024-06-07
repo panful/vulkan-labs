@@ -385,9 +385,14 @@ void Viewer::ProcessEvent(const Event& event)
             break;
     }
 
+    // XXX:
     if (m_presentWindow)
     {
         m_presentWindow->Render();
+    }
+    else
+    {
+        Render();
     }
 }
 

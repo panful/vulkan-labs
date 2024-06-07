@@ -1,12 +1,15 @@
 /**
  * 1. 单独一个窗口
  * 2. 多个窗口一个线程
- * 3. Viewer
+ * 3.
  * 4. 多个窗口多个线程
  *
+ *
+ * 21. Viewer
+ * 22. Viewer 多个 View
  */
 
-#define TEST1
+#define TEST21
 
 #ifdef TEST1
 
@@ -78,49 +81,6 @@ int main()
 
 #endif // TEST2
 
-#ifdef TEST3
-
-#include "Actor.h"
-#include "Device.h"
-#include "View.h"
-#include "Viewer.h"
-#include "Window.h"
-#include <iostream>
-#include <memory>
-
-int main()
-{
-    auto viewer = std::make_unique<Viewer>();
-
-    auto actor = std::make_shared<Actor>();
-    auto view  = std::make_shared<View>();
-    view->SetViewport({.1, .1, .3, .3});
-    view->SetBackground({.3f, .2f, .1f, 1.f});
-    view->AddActor(actor);
-
-    auto view2 = std::make_shared<View>();
-    view2->SetViewport({.6, .6, .3, .3});
-    view2->AddActor(actor);
-
-    viewer->AddView(view);
-    viewer->AddView(view2);
-
-    for (auto i = 0u; i < 10; ++i)
-    {
-        viewer->Render();
-    }
-    viewer->ResizeFramebuffer({399, 431});
-    for (auto i = 0u; i < 10; ++i)
-    {
-        viewer->Render();
-    }
-
-    std::cout << "Success\n";
-    return 0;
-}
-
-#endif // TEST3
-
 #ifdef TEST4
 
 #include "Actor.h"
@@ -170,3 +130,87 @@ int main()
 }
 
 #endif // TEST4
+
+#ifdef TEST21
+
+#include "Actor.h"
+#include "Device.h"
+#include "Event.h"
+#include "View.h"
+#include "Viewer.h"
+#include "Window.h"
+#include <iostream>
+#include <memory>
+
+int main()
+{
+    auto viewer = std::make_unique<Viewer>();
+    auto actor  = std::make_shared<Actor>();
+    auto view   = std::make_shared<View>();
+
+    view->SetViewport({.05, .05, .9, .9});
+    view->SetBackground({.3f, .2f, .1f, 1.f});
+    view->AddActor(actor);
+
+    viewer->AddView(view);
+
+    for (auto i = 0u; i < 10; ++i)
+    {
+        Event event {.type = EventType::MouseWheelBackward};
+        viewer->ProcessEvent(event);
+    }
+    viewer->ResizeFramebuffer({399, 431});
+    for (auto i = 0u; i < 10; ++i)
+    {
+        Event event {.type = EventType::MouseWheelForward};
+        viewer->ProcessEvent(event);
+    }
+
+    std::cout << "Success\n";
+    return 0;
+}
+
+#endif // TEST21
+
+#ifdef TEST22
+
+#include "Actor.h"
+#include "Device.h"
+#include "View.h"
+#include "Viewer.h"
+#include "Window.h"
+#include <iostream>
+#include <memory>
+
+int main()
+{
+    auto viewer = std::make_unique<Viewer>();
+
+    auto actor = std::make_shared<Actor>();
+    auto view  = std::make_shared<View>();
+    view->SetViewport({.1, .1, .3, .3});
+    view->SetBackground({.3f, .2f, .1f, 1.f});
+    view->AddActor(actor);
+
+    auto view2 = std::make_shared<View>();
+    view2->SetViewport({.6, .6, .3, .3});
+    view2->AddActor(actor);
+
+    viewer->AddView(view);
+    viewer->AddView(view2);
+
+    for (auto i = 0u; i < 10; ++i)
+    {
+        viewer->Render();
+    }
+    viewer->ResizeFramebuffer({399, 431});
+    for (auto i = 0u; i < 10; ++i)
+    {
+        viewer->Render();
+    }
+
+    std::cout << "Success\n";
+    return 0;
+}
+
+#endif // TEST22
