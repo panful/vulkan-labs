@@ -123,10 +123,6 @@ WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
     }
 
     ++numberOfWindows;
-
-    glfwSetWindowUserPointer(window, this);
-    glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
-    glfwSetScrollCallback(window, ScrollCallback);
 }
 
 WindowHelper::~WindowHelper()
@@ -177,36 +173,10 @@ void WindowHelper::WaitWindowNotMinimized()
     std::cout << "WindowHelper size: " << width << ' ' << height << '\n';
 }
 
-void WindowHelper::FramebufferResizeCallback(GLFWwindow* window, int width, int height) noexcept
-{
-    if (auto app = reinterpret_cast<WindowHelper*>(glfwGetWindowUserPointer(window)))
-    {
-        app->extent = vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
-    }
-}
-
-void WindowHelper::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept
-{
-    if (auto app = reinterpret_cast<WindowHelper*>(glfwGetWindowUserPointer(window)))
-    {
-        std::cout << "scroll: " << xoffset << '\t' << yoffset << std::endl;
-        app->scrollCallback(xoffset, yoffset);
-    }
-}
-
-void WindowHelper::SetEventCallback(std::function<void(double, double)>&& callback)
-{
-    scrollCallback = std::move(callback);
-}
-
 Window::Window(const std::shared_ptr<Device>& device, const std::string& name, const vk::Extent2D& extent)
 {
     m_windowHelper = std::make_unique<WindowHelper>(name, extent);
-    m_windowHelper->SetEventCallback([this](double xoffset, double yoffset) {
-        this->viewer->ProcessEvent(Event {yoffset > 0 ? EventType::MouseWheelBackward : EventType::MouseWheelForward});
-    });
-
-    m_device = device;
+    m_device       = device;
     m_windowHelper->InitSurface(m_device->GetInstance());
     InitWindow();
 }
@@ -214,11 +184,7 @@ Window::Window(const std::shared_ptr<Device>& device, const std::string& name, c
 Window::Window(const std::string& name, const vk::Extent2D& extent)
 {
     m_windowHelper = std::make_unique<WindowHelper>(name, extent);
-    m_windowHelper->SetEventCallback([this](double xoffset, double yoffset) {
-        this->viewer->ProcessEvent(Event {yoffset > 0 ? EventType::MouseWheelBackward : EventType::MouseWheelForward});
-    });
-
-    m_device = std::make_shared<Device>(m_windowHelper);
+    m_device       = std::make_shared<Device>(m_windowHelper);
     InitWindow();
 }
 
@@ -227,113 +193,85 @@ Window::~Window()
     m_device->device.waitIdle();
 }
 
-void Window::Run()
+void Window::Render()
 {
-    while (!m_windowHelper->ShouldExit())
+    static int index = 0;
+    std::cout << "Window render: " << index++ << std::endl;
+
+    auto waitResult = m_device->device.waitForFences({m_drawFences[m_currentFrameIndex]}, VK_TRUE, std::numeric_limits<uint64_t>::max());
+    auto [result, imageIndex] =
+        m_swapChainData.swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), m_imageAcquiredSemaphores[m_currentFrameIndex]);
+    assert(imageIndex < m_swapChainData.images.size());
+
+    m_device->device.resetFences({m_drawFences[m_currentFrameIndex]});
+
+    auto&& cmd = m_commandBuffers[m_currentFrameIndex];
+    cmd.reset();
+
+    std::array<vk::ClearValue, 1> clearValues;
+    clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+    vk::RenderPassBeginInfo renderPassBeginInfo(
+        *m_renderPass, m_framebuffers[m_currentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), m_swapChainData.swapchainExtent), clearValues
+    );
+
+    cmd.begin({});
+
+    m_viewer->Record(cmd);
+
+    cmd.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
+
+    cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    cmd.setViewport(
+        0,
+        vk::Viewport(
+            0.0f,
+            0.0f,
+            static_cast<float>(m_swapChainData.swapchainExtent.width),
+            static_cast<float>(m_swapChainData.swapchainExtent.height),
+            0.0f,
+            1.0f
+        )
+    );
+    cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_swapChainData.swapchainExtent));
+    cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, {m_descriptorSets[m_currentFrameIndex]}, nullptr);
+    cmd.draw(3, 1, 0, 0);
+
+    cmd.endRenderPass();
+    cmd.end();
+
+    //--------------------------------------------------------------------------------------
+    std::array<vk::CommandBuffer, 1> drawCommandBuffers {cmd};
+    std::array<vk::Semaphore, 1> signalSemaphores {m_renderFinishedSemaphores[m_currentFrameIndex]};
+    std::array<vk::Semaphore, 1> waitSemaphores {m_imageAcquiredSemaphores[m_currentFrameIndex]};
+    std::array<vk::PipelineStageFlags, 1> waitStages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+    vk::SubmitInfo drawSubmitInfo(waitSemaphores, waitStages, drawCommandBuffers, signalSemaphores);
+    m_device->graphicsQueue.submit(drawSubmitInfo, m_drawFences[m_currentFrameIndex]);
+
+    //--------------------------------------------------------------------------------------
+    std::array<vk::Semaphore, 1> presentWait {m_renderFinishedSemaphores[m_currentFrameIndex]};
+    std::array<vk::SwapchainKHR, 1> swapchains {m_swapChainData.swapChain};
+    vk::PresentInfoKHR presentInfoKHR(presentWait, swapchains, imageIndex);
+
+    try
     {
-        static int index {0};
-        // std::cout << "Index: " << index++ << '\n';
-        m_windowHelper->PollEvents();
-
-        auto waitResult = m_device->device.waitForFences({m_drawFences[m_currentFrameIndex]}, VK_TRUE, std::numeric_limits<uint64_t>::max());
-        auto [result, imageIndex] =
-            m_swapChainData.swapChain.acquireNextImage(std::numeric_limits<uint64_t>::max(), m_imageAcquiredSemaphores[m_currentFrameIndex]);
-        assert(imageIndex < m_swapChainData.images.size());
-
-        if (vk::Result::eErrorOutOfDateKHR == result)
-        {
-            RecreateSwapChain();
-            viewer->ResizeFramebuffer(m_windowHelper->extent);
-            UpdateDescriptorSets();
-            continue;
-        }
-        else if (vk::Result::eSuccess != result && vk::Result::eSuboptimalKHR != result)
-        {
-            throw std::runtime_error("failed to acquire swap chain image");
-        }
-
-        m_device->device.resetFences({m_drawFences[m_currentFrameIndex]});
-
-        auto&& cmd = m_commandBuffers[m_currentFrameIndex];
-        cmd.reset();
-
-        std::array<vk::ClearValue, 1> clearValues;
-        clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
-        vk::RenderPassBeginInfo renderPassBeginInfo(
-            *m_renderPass, m_framebuffers[m_currentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), m_swapChainData.swapchainExtent), clearValues
-        );
-
-        cmd.begin({});
-
-        viewer->Record(cmd);
-
-        cmd.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
-
-        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
-        cmd.setViewport(
-            0,
-            vk::Viewport(
-                0.0f,
-                0.0f,
-                static_cast<float>(m_swapChainData.swapchainExtent.width),
-                static_cast<float>(m_swapChainData.swapchainExtent.height),
-                0.0f,
-                1.0f
-            )
-        );
-        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_swapChainData.swapchainExtent));
-        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, {m_descriptorSets[m_currentFrameIndex]}, nullptr);
-        cmd.draw(3, 1, 0, 0);
-
-        cmd.endRenderPass();
-        cmd.end();
-
-        //--------------------------------------------------------------------------------------
-        std::array<vk::CommandBuffer, 1> drawCommandBuffers {cmd};
-        std::array<vk::Semaphore, 1> signalSemaphores {m_renderFinishedSemaphores[m_currentFrameIndex]};
-        std::array<vk::Semaphore, 1> waitSemaphores {m_imageAcquiredSemaphores[m_currentFrameIndex]};
-        std::array<vk::PipelineStageFlags, 1> waitStages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
-        vk::SubmitInfo drawSubmitInfo(waitSemaphores, waitStages, drawCommandBuffers, signalSemaphores);
-        m_device->graphicsQueue.submit(drawSubmitInfo, m_drawFences[m_currentFrameIndex]);
-
-        //--------------------------------------------------------------------------------------
-        std::array<vk::Semaphore, 1> presentWait {m_renderFinishedSemaphores[m_currentFrameIndex]};
-        std::array<vk::SwapchainKHR, 1> swapchains {m_swapChainData.swapChain};
-        vk::PresentInfoKHR presentInfoKHR(presentWait, swapchains, imageIndex);
-
-        try
-        {
-            auto presentResult = m_device->presentQueue.presentKHR(presentInfoKHR);
-            // std::cout << presentResult << '\n';
-            if (presentResult != vk::Result::eSuccess)
-            {
-                RecreateSwapChain();
-
-                viewer->ResizeFramebuffer(m_windowHelper->extent);
-                UpdateDescriptorSets();
-            }
-        }
-        catch (vk::SystemError& err)
-        {
-            std::cout << "vk::SystemError\n\twhat: " << err.what() << "\n\tcode: " << err.code() << '\n';
-            RecreateSwapChain();
-
-            viewer->ResizeFramebuffer(m_windowHelper->extent);
-            UpdateDescriptorSets();
-        }
-
-        m_currentFrameIndex = (m_currentFrameIndex + 1) % m_numberOfFrames;
+        auto presentResult = m_device->presentQueue.presentKHR(presentInfoKHR);
     }
+    catch (vk::SystemError& err)
+    {
+        std::cout << "vk::SystemError\n\twhat: " << err.what() << "\n\tcode: " << err.code() << '\n';
+    }
+
+    m_currentFrameIndex = (m_currentFrameIndex + 1) % m_numberOfFrames;
 }
 
 void Window::AddView(const std::shared_ptr<View>& view)
 {
-    viewer->AddView(view);
+    m_viewer->AddView(view);
 }
 
 void Window::UpdateDescriptorSets()
 {
-    auto viewer_imageViews = viewer->GetImageViews();
+    auto viewer_imageViews = m_viewer->GetImageViews();
 
     for (uint32_t i = 0; i < m_numberOfFrames; ++i)
     {
@@ -349,11 +287,7 @@ void Window::RecreateSwapChain()
 {
     std::cout << "recreate swap chain: " << m_windowHelper->extent.width << ' ' << m_windowHelper->extent.height << '\n';
 
-    m_currentFrameIndex = m_numberOfFrames - 1; // 保证下一帧的序号从 0 开始
-
-    m_windowHelper->WaitWindowNotMinimized();
-
-    m_device->device.waitIdle();
+    m_currentFrameIndex = 0; // 保证下一帧的序号从 0 开始
 
     m_swapChainData = SwapChainData(
         m_device,
@@ -377,6 +311,12 @@ void Window::RecreateSwapChain()
     }
 }
 
+void Window::ResizeWindow(const vk::Extent2D& extent)
+{
+    RecreateSwapChain();
+    UpdateDescriptorSets();
+}
+
 void Window::InitWindow()
 {
     m_swapChainData = SwapChainData(
@@ -391,7 +331,8 @@ void Window::InitWindow()
 
     m_numberOfFrames = m_swapChainData.numberOfImages;
 
-    viewer = std::make_unique<Viewer>(m_device, m_numberOfFrames, true, m_windowHelper->surfaceData.extent);
+    m_viewer = std::make_unique<Viewer>(m_device, m_numberOfFrames, true, m_windowHelper->surfaceData.extent);
+    m_viewer->SetPresentWindow(this);
 
     m_commandBuffers = vk::raii::CommandBuffers(
         m_device->device, vk::CommandBufferAllocateInfo {m_device->commandPoolReset, vk::CommandBufferLevel::ePrimary, m_numberOfFrames}
@@ -506,7 +447,27 @@ void Window::InitWindow()
     }
 }
 
+void Window::WaitIdle() const noexcept
+{
+    m_device->device.waitIdle();
+}
+
 std::shared_ptr<Device> Window::GetDevice() const noexcept
 {
     return m_device;
+}
+
+const std::unique_ptr<WindowHelper>& Window::GetWindowHelper() const noexcept
+{
+    return m_windowHelper;
+}
+
+const std::unique_ptr<Viewer>& Window::GetViewer() const noexcept
+{
+    return m_viewer;
+}
+
+void Window::SetInteractorStyle(const std::shared_ptr<InteractorStyle>& interactorStyle)
+{
+    m_viewer->SetInteractorStyle(interactorStyle);
 }

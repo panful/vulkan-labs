@@ -2,6 +2,7 @@
 
 #include "Event.h"
 #include "ImageData.h"
+#include "InteractorStyle.h"
 #include "View.h"
 #include <memory>
 #include <vector>
@@ -9,6 +10,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 struct Device;
+struct Window;
 
 class Viewer
 {
@@ -34,8 +36,13 @@ public:
 
     void ProcessEvent(const Event& event);
 
+    void SetInteractorStyle(const std::shared_ptr<InteractorStyle>& interactorStyle);
+
+    void SetPresentWindow(Window* window);
+
 private:
     std::shared_ptr<Device> m_device {};
+    Window* m_presentWindow {nullptr};
 
     uint32_t numberOfFrames {0};
     uint32_t currentFrameIndex {0};
@@ -63,4 +70,6 @@ private:
     vk::raii::CommandBuffers m_blitImageCommandBuffers {nullptr};
 
     std::vector<std::shared_ptr<View>> m_views {};
+
+    std::shared_ptr<InteractorStyle> m_interactorStyle {};
 };

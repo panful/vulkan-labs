@@ -2,6 +2,7 @@
 #include "Device.h"
 #include "ImageData.h"
 #include "Utils.h"
+#include "Window.h"
 #include <fstream>
 #include <iostream>
 
@@ -157,7 +158,7 @@ Viewer::~Viewer()
 
 void Viewer::ResizeFramebuffer(const vk::Extent2D& extent_)
 {
-    std::cout << "resize frame buffer: " << extent.width << ' ' << extent.height << '\n';
+    std::cout << "Viewer resize: " << extent.width << ' ' << extent.height << " -> " << extent_.width << ' ' << extent_.height << '\n';
 
     if (extent == extent_)
     {
@@ -351,8 +352,16 @@ void Viewer::Render()
     currentFrameIndex = (currentFrameIndex + 1) % numberOfFrames;
 }
 
+void Viewer::SetInteractorStyle(const std::shared_ptr<InteractorStyle>& interactorStyle)
+{
+    m_interactorStyle = interactorStyle;
+}
+
 void Viewer::ProcessEvent(const Event& event)
 {
+    static int index = 0;
+    std::cout << "Viewer process event: " << index++ << std::endl;
+
     static float base {3.f};
     switch (event.type)
     {
@@ -375,4 +384,14 @@ void Viewer::ProcessEvent(const Event& event)
         default:
             break;
     }
+
+    if (m_presentWindow)
+    {
+        m_presentWindow->Render();
+    }
+}
+
+void Viewer::SetPresentWindow(Window* window)
+{
+    m_presentWindow = window;
 }

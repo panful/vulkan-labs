@@ -14,6 +14,7 @@ struct GLFWwindow;
 struct Device;
 class Viewer;
 class View;
+class InteractorStyle;
 
 struct WindowHelper
 {
@@ -34,13 +35,6 @@ struct WindowHelper
 
     void WaitWindowNotMinimized();
 
-    void SetEventCallback(std::function<void(double, double)>&& callback);
-
-    static void FramebufferResizeCallback(GLFWwindow* window, int width, int height) noexcept;
-    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept;
-
-    std::function<void(double, double)> scrollCallback {};
-
     inline static std::mutex mutex {};
     inline static std::atomic_uint32_t numberOfWindows {0};
 
@@ -55,16 +49,26 @@ struct Window
     Window(const std::shared_ptr<Device>& device, const std::string& name, const vk::Extent2D& extent);
     ~Window();
 
-    void Run();
+    void Render();
+
+    void ResizeWindow(const vk::Extent2D& extent);
+
     void AddView(const std::shared_ptr<View>& view);
 
+    void SetInteractorStyle(const std::shared_ptr<InteractorStyle>& interactorStyle);
+
+    void WaitIdle() const noexcept;
+
     std::shared_ptr<Device> GetDevice() const noexcept;
+    const std::unique_ptr<WindowHelper>& GetWindowHelper() const noexcept;
+    const std::unique_ptr<Viewer>& GetViewer() const noexcept;
 
 private:
     void UpdateDescriptorSets();
     void RecreateSwapChain();
     void InitWindow();
 
+private:
     std::shared_ptr<Device> m_device {};
     std::unique_ptr<WindowHelper> m_windowHelper {};
     SwapChainData m_swapChainData {nullptr};
@@ -74,9 +78,8 @@ private:
     uint32_t m_numberOfFrames {0};
     uint32_t m_currentFrameIndex {0};
 
-    std::unique_ptr<Viewer> viewer {};
+    std::unique_ptr<Viewer> m_viewer {};
 
-private:
     vk::raii::RenderPass m_renderPass {nullptr};
     vk::raii::DescriptorSetLayout m_descriptorSetLayout {nullptr};
     vk::raii::PipelineLayout m_pipelineLayout {nullptr};

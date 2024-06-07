@@ -12,6 +12,8 @@
 
 #include "Actor.h"
 #include "Device.h"
+#include "Interactor.h"
+#include "InteractorStyle.h"
 #include "View.h"
 #include "Viewer.h"
 #include "Window.h"
@@ -20,15 +22,22 @@
 
 int main()
 {
-    auto window = std::make_unique<Window>("test", vk::Extent2D {800, 600});
+    auto window = std::make_shared<Window>("test", vk::Extent2D {800, 600});
     auto actor  = std::make_shared<Actor>();
     auto view   = std::make_shared<View>();
+
     view->SetViewport({.05, .05, .9, .9});
     view->SetBackground({.3f, .2f, .1f, 1.f});
     view->AddActor(actor);
 
     window->AddView(view);
-    window->Run();
+    window->SetInteractorStyle(std::make_unique<InteractorStyle>());
+
+    auto interactor = std::make_unique<Interactor>();
+    interactor->SetWindow(window);
+
+    window->Render();
+    interactor->Start();
 
     std::cout << "Success\n";
     return 0;
