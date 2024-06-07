@@ -350,3 +350,29 @@ void Viewer::Render()
 
     currentFrameIndex = (currentFrameIndex + 1) % numberOfFrames;
 }
+
+void Viewer::ProcessEvent(const Event& event)
+{
+    static float base {3.f};
+    switch (event.type)
+    {
+        case EventType::MouseWheelBackward:
+            base += 1.f;
+            for (const auto& view : m_views)
+            {
+                auto&& camera = view->GetCamera();
+                camera->SetEyePosition(glm::vec3 {0.f, 0.f, base});
+            }
+            break;
+        case EventType::MouseWheelForward:
+            base -= 1.f;
+            for (const auto& view : m_views)
+            {
+                auto&& camera = view->GetCamera();
+                camera->SetEyePosition(glm::vec3 {0.f, 0.f, base});
+            }
+            break;
+        default:
+            break;
+    }
+}

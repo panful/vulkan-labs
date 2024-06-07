@@ -26,6 +26,8 @@ public:
 
     void SetBackground(const std::array<float, 4>& background);
 
+    const std::unique_ptr<Camera>& GetCamera() const noexcept;
+
 private:
     std::unique_ptr<Camera> m_camera {};
     std::vector<std::shared_ptr<Actor>> m_actors {};

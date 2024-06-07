@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Event.h"
 #include "ImageData.h"
 #include "View.h"
 #include <memory>
@@ -30,6 +31,8 @@ public:
     void Render();
 
     void AddView(const std::shared_ptr<View>& view);
+
+    void ProcessEvent(const Event& event);
 
 private:
     std::shared_ptr<Device> m_device {};

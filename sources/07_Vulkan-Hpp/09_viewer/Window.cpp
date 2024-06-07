@@ -143,6 +143,7 @@ WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
 
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
+    glfwSetScrollCallback(window, ScrollCallback);
 }
 
 WindowHelper::~WindowHelper()
@@ -191,14 +192,34 @@ void WindowHelper::WaitWindowNotMinimized()
 
 void WindowHelper::FramebufferResizeCallback(GLFWwindow* window, int width, int height) noexcept
 {
-    auto app    = reinterpret_cast<WindowHelper*>(glfwGetWindowUserPointer(window));
-    app->extent = vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+    if (auto app = reinterpret_cast<WindowHelper*>(glfwGetWindowUserPointer(window)))
+    {
+        app->extent = vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+    }
+}
+
+void WindowHelper::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept
+{
+    if (auto app = reinterpret_cast<WindowHelper*>(glfwGetWindowUserPointer(window)))
+    {
+        std::cout << "scroll: " << xoffset << '\t' << yoffset << std::endl;
+        app->scrollCallback(xoffset, yoffset);
+    }
+}
+
+void WindowHelper::SetEventCallback(std::function<void(double, double)>&& callback)
+{
+    scrollCallback = std::move(callback);
 }
 
 Window::Window(const std::shared_ptr<Device>& device, const std::string& name, const vk::Extent2D& extent)
 {
     m_windowHelper = std::make_unique<WindowHelper>(name, extent);
-    m_device       = device;
+    m_windowHelper->SetEventCallback([this](double xoffset, double yoffset) {
+        this->viewer->ProcessEvent(Event {yoffset > 0 ? EventType::MouseWheelBackward : EventType::MouseWheelForward});
+    });
+
+    m_device = device;
     m_windowHelper->InitSurface(m_device->GetInstance());
     InitWindow();
 }
@@ -206,7 +227,11 @@ Window::Window(const std::shared_ptr<Device>& device, const std::string& name, c
 Window::Window(const std::string& name, const vk::Extent2D& extent)
 {
     m_windowHelper = std::make_unique<WindowHelper>(name, extent);
-    m_device       = std::make_shared<Device>(m_windowHelper);
+    m_windowHelper->SetEventCallback([this](double xoffset, double yoffset) {
+        this->viewer->ProcessEvent(Event {yoffset > 0 ? EventType::MouseWheelBackward : EventType::MouseWheelForward});
+    });
+
+    m_device = std::make_shared<Device>(m_windowHelper);
     InitWindow();
 }
 

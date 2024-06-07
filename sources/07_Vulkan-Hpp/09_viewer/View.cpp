@@ -57,3 +57,8 @@ void View::SetBackground(const std::array<float, 4>& background)
 {
     m_background = background;
 }
+
+const std::unique_ptr<Camera>& View::GetCamera() const noexcept
+{
+    return m_camera;
+}

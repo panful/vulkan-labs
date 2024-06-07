@@ -2,6 +2,7 @@
 
 #include "SurfaceData.h"
 #include "SwapChainData.h"
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -49,7 +50,12 @@ struct WindowHelper
 
     void WaitWindowNotMinimized();
 
+    void SetEventCallback(std::function<void(double, double)>&& callback);
+
     static void FramebufferResizeCallback(GLFWwindow* window, int width, int height) noexcept;
+    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept;
+
+    std::function<void(double, double)> scrollCallback {};
 
     GLFWwindow* window {};
     vk::Extent2D extent {};
