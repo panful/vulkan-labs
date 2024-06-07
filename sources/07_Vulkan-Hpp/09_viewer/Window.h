@@ -2,6 +2,7 @@
 
 #include "SurfaceData.h"
 #include "SwapChainData.h"
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -13,23 +14,6 @@ struct GLFWwindow;
 struct Device;
 class Viewer;
 class View;
-
-class GLFWHelper
-{
-private:
-    GLFWHelper();
-    ~GLFWHelper();
-
-    GLFWHelper(const GLFWHelper&)            = delete;
-    GLFWHelper& operator=(const GLFWHelper&) = delete;
-
-    std::mutex mutex {};
-
-public:
-    static GLFWHelper* GetInstance();
-    GLFWwindow* CreateWindow(const std::string& name, const vk::Extent2D& extent);
-    void DestroyWindow(GLFWwindow* window);
-};
 
 struct WindowHelper
 {
@@ -56,6 +40,9 @@ struct WindowHelper
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept;
 
     std::function<void(double, double)> scrollCallback {};
+
+    inline static std::mutex mutex {};
+    inline static std::atomic_uint32_t numberOfWindows {0};
 
     GLFWwindow* window {};
     vk::Extent2D extent {};

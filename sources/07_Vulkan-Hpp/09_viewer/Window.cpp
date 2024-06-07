@@ -104,42 +104,25 @@ vk::raii::Pipeline makeGraphicsPipelineForQuad(
 }
 } // namespace
 
-GLFWHelper::GLFWHelper()
-{
-    if (!glfwInit())
-    {
-        throw std::runtime_error("failed to init glfw");
-    }
-    glfwSetErrorCallback([](int error, const char* msg) { std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl; });
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-}
-
-GLFWHelper::~GLFWHelper()
-{
-    glfwTerminate();
-}
-
-GLFWHelper* GLFWHelper::GetInstance()
-{
-    static GLFWHelper helper {};
-    return &helper;
-}
-
-GLFWwindow* GLFWHelper::CreateWindow(const std::string& name, const vk::Extent2D& extent)
-{
-    std::lock_guard lk(mutex);
-    return glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
-}
-
-void GLFWHelper::DestroyWindow(GLFWwindow* window)
-{
-    glfwDestroyWindow(window);
-}
-
 WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
     : extent(extent_)
 {
-    window = GLFWHelper::GetInstance()->CreateWindow(name, extent);
+    static std::once_flag init_flag {};
+    std::call_once(init_flag, []() {
+        if (!glfwInit())
+        {
+            throw std::runtime_error("failed to init glfw");
+        }
+        glfwSetErrorCallback([](int error, const char* msg) { std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl; });
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    });
+
+    {
+        std::lock_guard lk(mutex);
+        window = glfwCreateWindow(extent.width, extent.height, name.c_str(), nullptr, nullptr);
+    }
+
+    ++numberOfWindows;
 
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
@@ -148,7 +131,11 @@ WindowHelper::WindowHelper(const std::string& name, const vk::Extent2D& extent_)
 
 WindowHelper::~WindowHelper()
 {
-    GLFWHelper::GetInstance()->DestroyWindow(window);
+    glfwDestroyWindow(window);
+    if (--numberOfWindows == 0)
+    {
+        glfwTerminate();
+    }
 }
 
 vk::SurfaceKHR WindowHelper::InitSurface(const vk::raii::Instance& instance)
