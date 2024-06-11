@@ -4,6 +4,7 @@
 #include "Viewer.h"
 #include "Window.h"
 #include <GLFW/glfw3.h>
+#include <iostream>
 
 void Interactor::Start()
 {
@@ -12,11 +13,22 @@ void Interactor::Start()
     glfwSetKeyCallback(m_window->GetWindowHelper()->window, KeyCallback);
     glfwSetScrollCallback(m_window->GetWindowHelper()->window, ScrollCallback);
     glfwSetMouseButtonCallback(m_window->GetWindowHelper()->window, MouseButtonCallback);
-    glfwSetFramebufferSizeCallback(m_window->GetWindowHelper()->window, FramebufferSizeCallback);
+    glfwSetWindowSizeCallback(m_window->GetWindowHelper()->window, WindowSizeCallback);
 
     while (!m_window->GetWindowHelper()->ShouldExit())
     {
         m_window->GetWindowHelper()->PollEvents();
+
+        if (s_windowResized)
+        {
+            m_window->WaitIdle();
+            m_window->GetViewer()->ResizeFramebuffer(vk::Extent2D {s_windowWidth, s_windowHeight});
+            m_window->ResizeWindow(vk::Extent2D {s_windowWidth, s_windowHeight});
+
+            Event event {.type = EventType::ResizeWindow};
+            m_window->GetViewer()->ProcessEvent(event);
+            s_windowResized = false;
+        }
     }
 }
 
@@ -25,7 +37,7 @@ void Interactor::SetWindow(const std::shared_ptr<Window>& window)
     m_window = window;
 }
 
-void Interactor::FramebufferSizeCallback(GLFWwindow* window, int width, int height) noexcept
+void Interactor::WindowSizeCallback(GLFWwindow* window, int width, int height) noexcept
 {
     if (width <= 0 || height <= 0)
     {
@@ -34,12 +46,9 @@ void Interactor::FramebufferSizeCallback(GLFWwindow* window, int width, int heig
 
     if (auto pInstance = static_cast<Interactor*>(glfwGetWindowUserPointer(window)))
     {
-        pInstance->m_window->WaitIdle();
-        pInstance->m_window->GetViewer()->ResizeFramebuffer(vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
-        pInstance->m_window->ResizeWindow(vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
-
-        Event event {.type = EventType::ResizeWindow};
-        pInstance->m_window->GetViewer()->ProcessEvent(event);
+        pInstance->s_windowResized = true;
+        pInstance->s_windowWidth   = static_cast<uint32_t>(width);
+        pInstance->s_windowHeight  = static_cast<uint32_t>(height);
     }
 }
 

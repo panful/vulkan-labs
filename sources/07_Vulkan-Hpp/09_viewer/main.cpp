@@ -9,7 +9,7 @@
  * 22. Viewer 多个 View
  */
 
-#define TEST21
+#define TEST1
 
 #ifdef TEST1
 
