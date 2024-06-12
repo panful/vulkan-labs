@@ -9,8 +9,25 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <atomic>
+#include <condition_variable>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <mutex>
+#include <queue>
+#include <random>
+#include <thread>
+
+#include "../09_viewer/Timer.hpp"
+
+struct RenderTarget
+{
+    uint8_t* pixels {nullptr};
+    uint32_t width {0};
+    uint32_t height {0};
+    uint64_t rowPitch {0};
+};
 
 static std::string AppName {"Vulkan-Hpp"};
 static std::string EngineName {"Vulkan-Hpp"};
@@ -516,7 +533,6 @@ struct ImageData
 class Test
 {
     bool m_supportBlit {false};
-    uint32_t m_currentFrameIndex {0};
     vk::Format m_colorFormat {vk::Format::eB8G8R8A8Unorm};
     vk::Extent2D m_extent {800, 600};
 
@@ -548,6 +564,23 @@ class Test
     std::vector<vk::raii::Fence> m_drawFences {};
     std::vector<vk::raii::Fence> m_blitFences {};
     std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores {};
+
+    std::queue<uint32_t, std::list<uint32_t>> m_submitIndices {};
+    std::function<void(const RenderTarget&)> m_callback {};
+
+    std::mutex m_mutex {};
+    std::condition_variable m_productCV {};
+    std::condition_variable m_consumeCV {};
+
+    std::thread m_productThread {};
+    std::thread m_consumeThread {};
+
+    bool m_exit {false};
+    bool m_consumeExit {false};
+
+    uint32_t m_currentFrameIndex {0};
+
+    std::atomic_uint32_t m_numberOfTasks {0};
 
 public:
     Test()
@@ -771,39 +804,61 @@ public:
         m_renderFinishedSemaphores.reserve(MaxFramesInFlight);
         for (uint32_t i = 0; i < MaxFramesInFlight; i++)
         {
-            m_drawFences.emplace_back(vk::raii::Fence(m_device, vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)));
-            m_blitFences.emplace_back(vk::raii::Fence(m_device, vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)));
+            m_drawFences.emplace_back(vk::raii::Fence(m_device, vk::FenceCreateInfo()));
+            m_blitFences.emplace_back(vk::raii::Fence(m_device, vk::FenceCreateInfo()));
             m_renderFinishedSemaphores.emplace_back(vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo()));
         }
+
+        Run();
     }
 
     ~Test()
     {
+        m_productThread.join();
+        m_consumeThread.join();
+
         m_device.waitIdle();
     }
 
     void Run()
     {
-        static uint32_t count {0};
-        while (count++ < 9)
+        m_productThread = std::thread([this]() { this->Product(); });
+        m_consumeThread = std::thread([this]() { this->Consume(); });
+    }
+
+    void AddTask()
+    {
+        m_numberOfTasks++;
+        m_productCV.notify_all();
+    }
+
+    void SetRTCallback(std::function<void(const RenderTarget&)>&& callback)
+    {
+        m_callback = std::move(callback);
+    }
+
+    void Exit()
+    {
+        m_exit = true;
+    }
+
+    void Product()
+    {
+        while (!(m_exit && m_numberOfTasks == 0))
         {
-            std::cout << "Index: " << count << "\tFrame: " << m_currentFrameIndex << '\n';
+            static uint32_t index {0};
+            {
+                std::unique_lock lk(m_mutex);
+                if (!m_productCV.wait_for(lk, std::chrono::seconds(9), [this]() {
+                        return !(this->m_numberOfTasks == 0 || this->m_submitIndices.size() == MaxFramesInFlight);
+                    }))
+                {
+                    continue;
+                }
+            }
 
-            auto result = m_device.waitForFences(
-                {m_drawFences[m_currentFrameIndex], m_blitFences[m_currentFrameIndex]}, VK_TRUE, std::numeric_limits<uint64_t>::max()
-            );
-            m_device.resetFences({m_drawFences[m_currentFrameIndex], m_blitFences[m_currentFrameIndex]});
-
-            // 确保命令执行完之后再保存图片，每个 commandbuffer 对应的第一张图片都还没有绘制就保存，所以都是黑色，图片格式是 BGRA
-            auto subResourceLayout = m_saveImageDatas[m_currentFrameIndex].image.getSubresourceLayout({vk::ImageAspectFlagBits::eColor, 0, 0});
-            auto saveImagePixels   = reinterpret_cast<uint8_t*>(m_saveImageDatas[m_currentFrameIndex].deviceMemory.mapMemory(0, vk::WholeSize, {}));
-            saveImagePixels += subResourceLayout.offset;
-            stbi_write_jpg(("raii_" + std::to_string(count) + ".jpg").c_str(), m_extent.width, m_extent.height, 4, saveImagePixels, 100);
-            m_saveImageDatas[m_currentFrameIndex].deviceMemory.unmapMemory();
-
-            // 更新 Uniform
             UniformBufferObject defaultUBO {};
-            defaultUBO.model = glm::rotate(glm::mat4(1.f), glm::radians(30.f * count), glm::vec3(0.f, 0.f, 1.f));
+            defaultUBO.model = glm::rotate(glm::mat4(1.f), glm::radians(30.f * index), glm::vec3(0.f, 0.f, 1.f));
             copyToDevice(m_uniformBufferObjects[m_currentFrameIndex].deviceMemory, defaultUBO);
 
             //--------------------------------------------------------------------------------------
@@ -812,7 +867,7 @@ public:
             cmd.begin({});
 
             std::array<vk::ClearValue, 1> clearValues;
-            clearValues[0].color = vk::ClearColorValue(0.0f + 1.f / count, 0.2f, 0.3f, 1.f);
+            clearValues[0].color = vk::ClearColorValue(0.0f + 1.f / index, 0.2f, 0.3f, 1.f);
             vk::RenderPassBeginInfo renderPassBeginInfo(
                 m_renderPass, m_framebuffers[m_currentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), m_extent), clearValues
             );
@@ -886,7 +941,52 @@ public:
             vk::SubmitInfo blitSubmitInfo(1, semaphore, waitStages, 1, pBlitCommandBuffer);
             m_graphicsAndTransferQueue.submit(blitSubmitInfo, m_blitFences[m_currentFrameIndex]);
 
+            {
+                std::lock_guard lk(m_mutex);
+                m_submitIndices.emplace(m_currentFrameIndex);
+            }
+
+            m_numberOfTasks--;
             m_currentFrameIndex = (m_currentFrameIndex + 1) % MaxFramesInFlight;
+            m_consumeCV.notify_all();
+        }
+
+        m_consumeExit = true;
+    }
+
+    void Consume()
+    {
+        while (!(m_consumeExit && m_submitIndices.empty()))
+        {
+            uint32_t frameIndex {0};
+            {
+                std::unique_lock lk(m_mutex);
+                if (!m_consumeCV.wait_for(lk, std::chrono::seconds(9), [this]() { return !this->m_submitIndices.empty(); }))
+                {
+                    continue;
+                }
+                frameIndex = m_submitIndices.front();
+            }
+
+            auto result = m_device.waitForFences({m_drawFences[frameIndex], m_blitFences[frameIndex]}, VK_TRUE, std::numeric_limits<uint64_t>::max());
+
+            m_device.resetFences({m_drawFences[frameIndex], m_blitFences[frameIndex]});
+
+            auto subResourceLayout = m_saveImageDatas[frameIndex].image.getSubresourceLayout({vk::ImageAspectFlagBits::eColor, 0, 0});
+
+            auto saveImagePixels = reinterpret_cast<uint8_t*>(m_saveImageDatas[frameIndex].deviceMemory.mapMemory(0, vk::WholeSize, {}));
+            saveImagePixels += subResourceLayout.offset;
+
+            m_callback({saveImagePixels, m_extent.width, m_extent.height, subResourceLayout.rowPitch});
+
+            m_saveImageDatas[frameIndex].deviceMemory.unmapMemory();
+
+            {
+                std::lock_guard lk(m_mutex);
+                m_submitIndices.pop();
+            }
+
+            m_productCV.notify_all();
         }
     }
 };
@@ -895,8 +995,24 @@ int main()
 {
     try
     {
-        Test t {};
-        t.Run();
+        std::cout << "Main thread id: " << std::this_thread::get_id() << '\n';
+
+        Timer time("run");
+
+        Test test {};
+        test.SetRTCallback([](const RenderTarget& rt) {
+            static int count {0};
+            Timer time2("save");
+            std::cout << "save: " << count << std::endl;
+            stbi_write_jpg(("raii_" + std::to_string(count++) + ".jpg").c_str(), rt.width, rt.height, 4, rt.pixels, 100);
+        });
+
+        for (auto i = 0u; i < 10u; ++i)
+        {
+            test.AddTask();
+        }
+
+        test.Exit();
     }
     catch (vk::SystemError& err)
     {
