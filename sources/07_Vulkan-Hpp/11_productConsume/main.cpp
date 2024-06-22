@@ -18,6 +18,7 @@
 #include <queue>
 #include <random>
 #include <thread>
+#include <list>
 
 #include "../09_viewer/Timer.hpp"
 
