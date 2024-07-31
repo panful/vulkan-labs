@@ -47,6 +47,7 @@ glslangValidator -V -o frag.spv base.frag
     顶点缓冲、索引缓冲的使用
 - 03_uniformBuffers
     Uniform Buffers的使用，给顶点着色器传递一个MVP矩阵
+    多个 DescriptorSet 的使用
 - 04_textureMapping
     纹理的使用
 - 05_depthBuffering
@@ -169,5 +170,3 @@ pushDescriptorSet
 vkCmdBeginRendering 相当于只有一个subpass的renderPass
 
 pipelineCache
-
-着色器中的 set = XX，Vulkan_hpp 有示例
