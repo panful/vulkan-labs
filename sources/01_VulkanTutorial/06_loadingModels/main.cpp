@@ -2339,12 +2339,13 @@ struct Buffer
 
 struct Primitive
 {
-    std::unique_ptr<Buffer> position {};
-    std::unique_ptr<Buffer> texCoord {};
-    std::unique_ptr<Buffer> normal {};
-    std::unique_ptr<Buffer> color {};
+    std::optional<std::string> position {};
+    std::optional<std::string> texCoord {};
+    std::optional<std::string> normal {};
+    std::optional<std::string> color {};
 
-    std::unique_ptr<Buffer> index {};
+    std::optional<std::string> index {};
+
     VkIndexType indexType {};
     uint32_t indexCount {0};
 
@@ -2394,7 +2395,7 @@ struct Scene
 struct Model
 {
     std::vector<std::unique_ptr<Scene>> scenes {};
-    std::unordered_map<size_t, void*> buffers;
+    std::unordered_map<std::string, std::unique_ptr<Buffer>> buffers;
 };
 
 struct PushConstant
@@ -2545,24 +2546,14 @@ private:
                         vkDestroyBuffer(m_device, node->modelUniform->uniformBuffers[i], nullptr);
                         vkFreeMemory(m_device, node->modelUniform->uniformBuffersMemory[i], nullptr);
                     }
-
-                    for (auto& primitive : node->mesh->primitives)
-                    {
-                        auto destroyVkSource = [this](std::unique_ptr<Buffer>& buffer) {
-                            if (buffer)
-                            {
-                                vkDestroyBuffer(m_device, buffer->buffer, nullptr);
-                                vkFreeMemory(m_device, buffer->bufferMemory, nullptr);
-                            }
-                        };
-
-                        destroyVkSource(primitive->position);
-                        destroyVkSource(primitive->texCoord);
-                        destroyVkSource(primitive->normal);
-                        destroyVkSource(primitive->index);
-                    }
                 }
             }
+        }
+
+        for (const auto& [_, buffer] : m_model->buffers)
+        {
+            vkDestroyBuffer(m_device, buffer->buffer, nullptr);
+            vkFreeMemory(m_device, buffer->bufferMemory, nullptr);
         }
     }
 
@@ -2741,8 +2732,13 @@ private:
                     bufferSize *= sizeof(float); // 数据类型 float
                 }
 
-                tempPrimitive->position = std::make_unique<Buffer>();
-                CreateVertexBuffer(tempPrimitive->position, bufferSize, dataPointer);
+                auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(bufferSize);
+                if (!m_model->buffers.contains(bufferInfo))
+                {
+                    m_model->buffers.try_emplace(bufferInfo, CreateVertexBuffer(bufferSize, dataPointer));
+                }
+
+                tempPrimitive->position = std::move(bufferInfo);
             }
 
             if (primitive.attributes.contains("NORMAL"))
@@ -2778,8 +2774,13 @@ private:
                         break;
                 }
 
-                tempPrimitive->index = std::make_unique<Buffer>();
-                CreateIndexBuffer(tempPrimitive->index, bufferSize, dataPointer);
+                auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(bufferSize);
+                if (!m_model->buffers.contains(bufferInfo))
+                {
+                    m_model->buffers.try_emplace(bufferInfo, CreateIndexBuffer(bufferSize, dataPointer));
+                }
+
+                tempPrimitive->index = std::move(bufferInfo);
             }
 
             if (primitive.material >= 0)
@@ -2811,11 +2812,11 @@ private:
 
                     for (const auto& primitive : node->mesh->primitives)
                     {
-                        VkBuffer vertexBuffers[] = {primitive->position->buffer};
+                        VkBuffer vertexBuffers[] = {m_model->buffers.at(primitive->position.value())->buffer};
                         VkDeviceSize offsets[]   = {0};
 
                         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-                        vkCmdBindIndexBuffer(commandBuffer, primitive->index->buffer, 0, primitive->indexType);
+                        vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
                         vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
                     }
                 }
@@ -2824,20 +2825,21 @@ private:
     }
 
     /// @brief 创建顶点缓冲
-    void CreateVertexBuffer(const std::unique_ptr<Buffer>& buffer, const VkDeviceSize bufferSize, const void* dataPointer)
+    std::unique_ptr<Buffer> CreateVertexBuffer(const VkDeviceSize bufferSize, const void* dataPointer)
     {
-        CreateDrawableBuffer(buffer, bufferSize, dataPointer, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        return CreateDrawableBuffer(bufferSize, dataPointer, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     }
 
     /// @brief 创建索引缓冲
-    void CreateIndexBuffer(const std::unique_ptr<Buffer>& buffer, const VkDeviceSize bufferSize, const void* dataPointer)
+    std::unique_ptr<Buffer> CreateIndexBuffer(const VkDeviceSize bufferSize, const void* dataPointer)
     {
-        CreateDrawableBuffer(buffer, bufferSize, dataPointer, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        return CreateDrawableBuffer(bufferSize, dataPointer, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     }
 
-    void
-    CreateDrawableBuffer(const std::unique_ptr<Buffer>& buffer, const VkDeviceSize bufferSize, const void* dataPointer, VkBufferUsageFlagBits usage)
+    std::unique_ptr<Buffer> CreateDrawableBuffer(const VkDeviceSize bufferSize, const void* dataPointer, VkBufferUsageFlagBits usage)
     {
+        auto buffer = std::make_unique<Buffer>();
+
         VkBuffer stagingBuffer {};
         VkDeviceMemory stagingBufferMemory {};
 
@@ -2861,7 +2863,7 @@ private:
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
 
-        std::cout << "drawable buffer: " << buffer->buffer << "\tmemory: " << buffer->bufferMemory << std::endl;
+        return buffer;
     }
 
     /// @brief 添加需要渲染的GUI控件
@@ -4223,8 +4225,6 @@ private:
                 modelUniform->uniformBuffersMemory[i]
             );
             vkMapMemory(m_device, modelUniform->uniformBuffersMemory[i], 0, bufferSize, 0, &modelUniform->uniformBuffersMapped[i]);
-
-            std::cout << "uniform buffer: " << modelUniform->uniformBuffers[i] << "\tmemory: " << modelUniform->uniformBuffersMemory[i] << std::endl;
         }
 
         //---------------------------------------------------------------------
