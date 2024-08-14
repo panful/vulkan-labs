@@ -3988,7 +3988,7 @@ private:
         {
             if (VK_SUCCESS != vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores.at(i))
                 || VK_SUCCESS != vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores.at(i))
-                || vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences.at(i)))
+                || VK_SUCCESS != vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences.at(i)))
             {
                 throw std::runtime_error("failed to create synchronization objects for a frame");
             }
@@ -4704,7 +4704,7 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
+    std::filesystem::path m_gltfFilename {"../resources/models/teapot.gltf"};
     tinygltf::Model m_gltfModel {};
     std::unique_ptr<Model> m_model {};
 };

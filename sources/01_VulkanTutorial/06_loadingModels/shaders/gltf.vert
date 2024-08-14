@@ -1,6 +1,7 @@
 #version 450
 
 layout(location = 0) in vec3 inPos;
+layout(location = 0) out vec3 outViewPos;
 
 layout(push_constant) uniform Pushconstant{
     mat4 view;
@@ -13,5 +14,7 @@ layout(binding = 0) uniform UniformBufferObject{
 
 void main() 
 {
-    gl_Position = PC.proj * PC.view * UBO.model * vec4(inPos, 1.0);
+    vec4 viewPos = PC.view * UBO.model * vec4(inPos, 1.);
+    gl_Position  = PC.proj * viewPos;
+    outViewPos   = vec3(viewPos);
 }
