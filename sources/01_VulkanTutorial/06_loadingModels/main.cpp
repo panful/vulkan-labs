@@ -2533,20 +2533,30 @@ private:
         vkDeviceWaitIdle(m_device);
     }
 
+    void DestroyNode(const std::unique_ptr<Node>& node) noexcept
+    {
+        if (node->mesh)
+        {
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+            {
+                vkDestroyBuffer(m_device, node->modelUniform->uniformBuffers[i], nullptr);
+                vkFreeMemory(m_device, node->modelUniform->uniformBuffersMemory[i], nullptr);
+            }
+        }
+
+        for (auto& child : node->children)
+        {
+            DestroyNode(child);
+        }
+    }
+
     void DestroyModel() noexcept
     {
         for (auto& scene : m_model->scenes)
         {
             for (auto& node : scene->nodes)
             {
-                if (node->mesh)
-                {
-                    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-                    {
-                        vkDestroyBuffer(m_device, node->modelUniform->uniformBuffers[i], nullptr);
-                        vkFreeMemory(m_device, node->modelUniform->uniformBuffersMemory[i], nullptr);
-                    }
-                }
+                DestroyNode(node);
             }
         }
 
@@ -2648,10 +2658,8 @@ private:
             auto tempScene  = std::make_unique<Scene>();
             tempScene->name = scene.name;
 
-            uint32_t imguiNode {0};
             for (const auto& nodeIndex : scene.nodes)
             {
-                m_imguiText += std::format("  Node {} : {}\n", imguiNode++, m_gltfModel.nodes[nodeIndex].name);
                 ParseNode(tempScene->nodes, m_gltfModel.nodes[nodeIndex]);
             }
 
@@ -2661,6 +2669,8 @@ private:
 
     void ParseNode(std::vector<std::unique_ptr<Node>>& nodes, const tinygltf::Node& node, const glm::mat4& matrix = glm::mat4(1.f))
     {
+        m_imguiText += std::format("  Node {} :\n", node.name);
+
         auto tempNode  = std::make_unique<Node>();
         tempNode->name = node.name;
 
@@ -2805,35 +2815,45 @@ private:
         }
     }
 
+    void DrawNode(const VkCommandBuffer commandBuffer, const std::unique_ptr<Node>& node) const noexcept
+    {
+        if (node->mesh)
+        {
+            vkCmdBindDescriptorSets(
+                commandBuffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                m_pipelineLayout,
+                0,
+                1,
+                &node->modelUniform->descriptorSets[m_currentFrame],
+                0,
+                nullptr
+            );
+
+            for (const auto& primitive : node->mesh->primitives)
+            {
+                VkBuffer vertexBuffers[] = {m_model->buffers.at(primitive->position.value())->buffer};
+                VkDeviceSize offsets[]   = {0};
+
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
+                vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
+            }
+        }
+
+        for (const auto& child : node->children)
+        {
+            DrawNode(commandBuffer, child);
+        }
+    }
+
     void DrawGLTFModel(const VkCommandBuffer commandBuffer) const noexcept
     {
         for (const auto& scene : m_model->scenes)
         {
             for (const auto& node : scene->nodes)
             {
-                if (node->mesh)
-                {
-                    vkCmdBindDescriptorSets(
-                        commandBuffer,
-                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        m_pipelineLayout,
-                        0,
-                        1,
-                        &node->modelUniform->descriptorSets[m_currentFrame],
-                        0,
-                        nullptr
-                    );
-
-                    for (const auto& primitive : node->mesh->primitives)
-                    {
-                        VkBuffer vertexBuffers[] = {m_model->buffers.at(primitive->position.value())->buffer};
-                        VkDeviceSize offsets[]   = {0};
-
-                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-                        vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
-                        vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
-                    }
-                }
+                DrawNode(commandBuffer, node);
             }
         }
     }
@@ -4238,6 +4258,8 @@ private:
                 modelUniform->uniformBuffersMemory[i]
             );
             vkMapMemory(m_device, modelUniform->uniformBuffersMemory[i], 0, bufferSize, 0, &modelUniform->uniformBuffersMapped[i]);
+
+            std::cout << "uniform: " << modelUniform->uniformBuffers[i] << std::endl;
         }
 
         //---------------------------------------------------------------------
@@ -4717,7 +4739,7 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
+    std::filesystem::path m_gltfFilename {"../resources/models/Poop.glb"};
     tinygltf::Model m_gltfModel {};
     std::unique_ptr<Model> m_model {};
 
