@@ -2640,13 +2640,18 @@ private:
     {
         m_model = std::make_unique<Model>();
 
+        uint32_t imguiScene {0};
         for (const auto& scene : m_gltfModel.scenes)
         {
+            m_imguiText += std::format("Scene {} : {}\n", imguiScene++, scene.name);
+
             auto tempScene  = std::make_unique<Scene>();
             tempScene->name = scene.name;
 
+            uint32_t imguiNode {0};
             for (const auto& nodeIndex : scene.nodes)
             {
+                m_imguiText += std::format("  Node {} : {}\n", imguiNode++, m_gltfModel.nodes[nodeIndex].name);
                 ParseNode(tempScene->nodes, m_gltfModel.nodes[nodeIndex]);
             }
 
@@ -2708,10 +2713,14 @@ private:
 
     void ParseMesh(const std::unique_ptr<Mesh>& mesh, const tinygltf::Mesh& gltfMesh)
     {
+        m_imguiText += std::format("    Mesh : {}\n", gltfMesh.name);
+
         mesh->name = gltfMesh.name;
 
+        uint32_t imguiPrimitive {0};
         for (const auto& primitive : gltfMesh.primitives)
         {
+            m_imguiText += std::format("      Primitive {} :\n", imguiPrimitive++);
             auto tempPrimitive = std::make_unique<Primitive>();
 
             if (primitive.attributes.contains("POSITION"))
@@ -2721,6 +2730,8 @@ private:
 
                 auto dataPointer = &m_gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
                 auto bufferSize  = accessor.count; // 顶点个数
+
+                m_imguiText += std::format("        Position : {}\n", accessor.count);
 
                 if (TINYGLTF_TYPE_VEC3 == accessor.type)
                 {
@@ -2754,6 +2765,8 @@ private:
 
                 tempPrimitive->indexCount = static_cast<uint32_t>(accessor.count);
 
+                m_imguiText += std::format("        Index : {}\n", accessor.count);
+
                 // cmdDrawIndex TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER == bufferView.target
 
                 switch (accessor.componentType)
@@ -2785,6 +2798,7 @@ private:
 
             if (primitive.material >= 0)
             {
+                m_imguiText += std::format("        Material : {}\n", m_gltfModel.materials[primitive.material].name);
             }
 
             mesh->primitives.emplace_back(std::move(tempPrimitive));
@@ -2872,7 +2886,7 @@ private:
         ImGui::NewFrame();
 
         ImGui::Begin("Display Infomation");
-        ImGui::Text("This is a simple GUI.");
+        ImGui::Text("%s", m_imguiText.c_str());
         ImGui::End();
 
         ImGui::Render();
@@ -4045,8 +4059,7 @@ private:
     {
         createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         // 设置回调函数处理的消息级别
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-            | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         // 设置回调函数处理的消息类型
         createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -4704,9 +4717,11 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::filesystem::path m_gltfFilename {"../resources/models/teapot.gltf"};
+    std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
     tinygltf::Model m_gltfModel {};
     std::unique_ptr<Model> m_model {};
+
+    std::string m_imguiText {};
 };
 
 int main()
