@@ -2,13 +2,16 @@
 
 layout(location = 0) in vec3 inPos;
 
-layout(binding = 0) uniform UniformBufferObject{
-    mat4 model;
+layout(push_constant) uniform Pushconstant{
     mat4 view;
     mat4 proj;
-} ubo;
+} PC;
+
+layout(binding = 0) uniform UniformBufferObject{
+    mat4 model;
+} UBO;
 
 void main() 
 {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPos, 1.0);
+    gl_Position = PC.proj * PC.view * UBO.model * vec4(inPos, 1.0);
 }

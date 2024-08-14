@@ -2287,6 +2287,7 @@ int main()
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // 透视矩阵深度值范围 [-1, 1] => [0, 1]
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
@@ -2362,9 +2363,20 @@ struct Camera
     std::string name {};
 };
 
+struct ModelUniform
+{
+    std::vector<VkBuffer> uniformBuffers {};
+    std::vector<VkDeviceMemory> uniformBuffersMemory {};
+    std::vector<void*> uniformBuffersMapped {};
+    std::vector<VkDescriptorSet> descriptorSets {};
+};
+
 struct Node
 {
     std::string name {};
+
+    glm::mat4 modelMatrix {};
+    std::unique_ptr<ModelUniform> modelUniform {};
 
     std::unique_ptr<Mesh> mesh {};
     std::unique_ptr<Camera> camera {};
@@ -2383,6 +2395,17 @@ struct Model
 {
     std::vector<std::unique_ptr<Scene>> scenes {};
     std::unordered_map<size_t, void*> buffers;
+};
+
+struct PushConstant
+{
+    alignas(16) glm::mat4 view {glm::mat4(1.f)};
+    alignas(16) glm::mat4 proj {glm::mat4(1.f)};
+};
+
+struct UniformBufferObject
+{
+    glm::mat4 model {glm::mat4(1.f)};
 };
 
 struct Vertex
@@ -2418,13 +2441,6 @@ struct Vertex
 
         return attributeDescriptions;
     }
-};
-
-struct UniformBufferObject
-{
-    glm::mat4 model {glm::mat4(1.f)};
-    glm::mat4 view {glm::mat4(1.f)};
-    glm::mat4 proj {glm::mat4(1.f)};
 };
 
 /// @brief 支持图形和呈现的队列族
@@ -2494,11 +2510,9 @@ private:
         CreateCommandPool();
         CreateDepthResources();
         CreateFramebuffers();
-        LoadModel();
-        CreateUniformBuffers();
         CreateDescriptorPool();
+        LoadModel();
         CreateImGuiDescriptorPool();
-        CreateDescriptorSets();
         CreateCommandBuffers();
         CreateSyncObjects();
         InitImGui();
@@ -2526,6 +2540,12 @@ private:
             {
                 if (node->mesh)
                 {
+                    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+                    {
+                        vkDestroyBuffer(m_device, node->modelUniform->uniformBuffers[i], nullptr);
+                        vkFreeMemory(m_device, node->modelUniform->uniformBuffersMemory[i], nullptr);
+                    }
+
                     for (auto& primitive : node->mesh->primitives)
                     {
                         auto destroyVkSource = [this](std::unique_ptr<Buffer>& buffer) {
@@ -2560,12 +2580,6 @@ private:
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
 
         vkDestroyDescriptorPool(m_device, m_imguiDescriptorPool, nullptr);
-
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-        {
-            vkDestroyBuffer(m_device, m_uniformBuffers.at(i), nullptr);
-            vkFreeMemory(m_device, m_uniformBuffersMemory.at(i), nullptr);
-        }
 
         vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
@@ -2649,13 +2663,38 @@ private:
         }
     }
 
-    void ParseNode(std::vector<std::unique_ptr<Node>>& nodes, const tinygltf::Node& node)
+    void ParseNode(std::vector<std::unique_ptr<Node>>& nodes, const tinygltf::Node& node, const glm::mat4& matrix = glm::mat4(1.f))
     {
         auto tempNode  = std::make_unique<Node>();
         tempNode->name = node.name;
 
+        glm::mat4 modelMatrix = matrix;
+        if (node.matrix.size() == 16)
+        {
+            modelMatrix = glm::make_mat4(node.matrix.data());
+        }
+        else
+        {
+            if (node.translation.size() == 3)
+            {
+                modelMatrix = glm::translate(modelMatrix, glm::vec3(glm::make_vec3(node.translation.data())));
+            }
+            if (node.rotation.size() == 4)
+            {
+                glm::quat quat = glm::make_quat(node.rotation.data());
+                modelMatrix *= glm::mat4(quat);
+            }
+            if (node.scale.size() == 3)
+            {
+                modelMatrix = glm::scale(modelMatrix, glm::vec3(glm::make_vec3(node.scale.data())));
+            }
+        }
+
         if (node.mesh >= 0)
         {
+            tempNode->modelUniform = CreateModelUniforms(modelMatrix);
+            tempNode->modelMatrix  = std::move(modelMatrix);
+
             tempNode->mesh = std::make_unique<Mesh>();
             ParseMesh(tempNode->mesh, m_gltfModel.meshes[node.mesh]);
         }
@@ -2670,7 +2709,7 @@ private:
 
         for (auto child : node.children)
         {
-            ParseNode(tempNode->children, m_gltfModel.nodes[child]);
+            ParseNode(tempNode->children, m_gltfModel.nodes[child], modelMatrix);
         }
 
         nodes.emplace_back(std::move(tempNode));
@@ -2759,6 +2798,17 @@ private:
             {
                 if (node->mesh)
                 {
+                    vkCmdBindDescriptorSets(
+                        commandBuffer,
+                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        m_pipelineLayout,
+                        0,
+                        1,
+                        &node->modelUniform->descriptorSets[m_currentFrame],
+                        0,
+                        nullptr
+                    );
+
                     for (const auto& primitive : node->mesh->primitives)
                     {
                         VkBuffer vertexBuffers[] = {primitive->position->buffer};
@@ -2766,11 +2816,6 @@ private:
 
                         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
                         vkCmdBindIndexBuffer(commandBuffer, primitive->index->buffer, 0, primitive->indexType);
-
-                        vkCmdBindDescriptorSets(
-                            commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets.at(m_currentFrame), 0, nullptr
-                        );
-
                         vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
                     }
                 }
@@ -2815,6 +2860,8 @@ private:
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+
+        std::cout << "drawable buffer: " << buffer->buffer << "\tmemory: " << buffer->bufferMemory << std::endl;
     }
 
     /// @brief 添加需要渲染的GUI控件
@@ -3515,12 +3562,18 @@ private:
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates    = dynamicStates.data();
 
+        VkPushConstantRange pushConstantRange = {};
+        pushConstantRange.stageFlags          = VK_SHADER_STAGE_VERTEX_BIT;
+        pushConstantRange.offset              = 0;
+        pushConstantRange.size                = sizeof(PushConstant);
+
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount         = 1;
         pipelineLayoutInfo.pSetLayouts            = &m_descriptorSetLayout;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
 
         if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout))
         {
@@ -3809,6 +3862,15 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+        auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
+
+        PushConstant pc {
+            .view = glm::lookAt(m_eyePos, m_lookAt, m_viewUp),
+            .proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f),
+        };
+        pc.proj[1][1] *= -1;
+        vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pc);
+
         DrawGLTFModel(commandBuffer);
 
         // 绘制ImGui
@@ -3852,9 +3914,6 @@ private:
         {
             throw std::runtime_error("failed to acquire swap chain image");
         }
-
-        // 每一帧都更新uniform
-        UpdateUniformBuffer(static_cast<uint32_t>(m_currentFrame));
 
         // 手动将栅栏重置为未发出信号的状态（必须手动设置）
         vkResetFences(m_device, 1, &m_inFlightFences.at(m_currentFrame));
@@ -4144,15 +4203,15 @@ private:
         }
     }
 
-    /// @brief 创建Uniform Buffer
-    /// @details 由于缓冲需要频繁更新，所以此处使用暂存缓冲并不会带来性能提升
-    void CreateUniformBuffers()
+    std::unique_ptr<ModelUniform> CreateModelUniforms(const glm::mat4& model)
     {
+        auto modelUniform = std::make_unique<ModelUniform>();
+
         VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-        m_uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        m_uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        m_uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+        modelUniform->uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        modelUniform->uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        modelUniform->uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -4160,67 +4219,33 @@ private:
                 bufferSize,
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_uniformBuffers.at(i),
-                m_uniformBuffersMemory.at(i)
+                modelUniform->uniformBuffers[i],
+                modelUniform->uniformBuffersMemory[i]
             );
-            vkMapMemory(m_device, m_uniformBuffersMemory.at(i), 0, bufferSize, 0, &m_uniformBuffersMapped.at(i));
+            vkMapMemory(m_device, modelUniform->uniformBuffersMemory[i], 0, bufferSize, 0, &modelUniform->uniformBuffersMapped[i]);
+
+            std::cout << "uniform buffer: " << modelUniform->uniformBuffers[i] << "\tmemory: " << modelUniform->uniformBuffersMemory[i] << std::endl;
         }
-    }
 
-    /// @brief 在绘制每一帧时更新uniform
-    /// @param currentImage
-    void UpdateUniformBuffer(uint32_t currentImage)
-    {
-        auto time   = static_cast<float>(glfwGetTime());
-        auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
-
-        UniformBufferObject ubo {};
-        ubo.model = glm::mat4(1.f);
-        ubo.view  = glm::lookAt(m_eyePos, m_lookAt, m_viewUp);
-        ubo.proj  = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f);
-
-        // glm的裁剪坐标的Y轴和 Vulkan 是相反的
-        ubo.proj[1][1] *= -1;
-
-        // 将变换矩阵的数据复制到uniform缓冲
-        std::memcpy(m_uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
-    }
-
-    /// @brief 创建描述符池，描述符集需要通过描述符池来创建
-    void CreateDescriptorPool()
-    {
-        VkDescriptorPoolSize poolSize {};
-        poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-
-        VkDescriptorPoolCreateInfo poolInfo {};
-        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes    = &poolSize;
-        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT); // 指定可以分配的最大描述符集个数
-        poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
-
-        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
+        //---------------------------------------------------------------------
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            throw std::runtime_error("failed to create descriptor pool");
+            UniformBufferObject ubo {};
+            ubo.model = model;
+            std::memcpy(modelUniform->uniformBuffersMapped[i], &ubo, sizeof(ubo));
         }
-    }
 
-    /// @brief 创建描述符集
-    void CreateDescriptorSets()
-    {
-        // 描述符布局对象的个数要匹配描述符集对象的个数
+        //---------------------------------------------------------------------
         std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_descriptorSetLayout);
 
         VkDescriptorSetAllocateInfo allocInfo {};
         allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool     = m_descriptorPool; // 指定分配描述符集对象的描述符池
+        allocInfo.descriptorPool     = m_descriptorPool;
         allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         allocInfo.pSetLayouts        = layouts.data();
 
-        // 描述符集对象会在描述符池对象清除时自动被清除
-        m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()))
+        modelUniform->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, modelUniform->descriptorSets.data()))
         {
             throw std::runtime_error("failed to allocate descriptor sets");
         }
@@ -4228,23 +4253,44 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorBufferInfo bufferInfo {};
-            bufferInfo.buffer = m_uniformBuffers.at(i);
+            bufferInfo.buffer = modelUniform->uniformBuffers[i];
             bufferInfo.offset = 0;
             bufferInfo.range  = sizeof(UniformBufferObject);
 
             VkWriteDescriptorSet descriptorWrite {};
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
-            descriptorWrite.dstBinding       = 0;                      // 指定缓冲绑定
-            descriptorWrite.dstArrayElement  = 0;                      // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrite.dstSet           = modelUniform->descriptorSets[i];
+            descriptorWrite.dstBinding       = 0;
+            descriptorWrite.dstArrayElement  = 0;
             descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptorWrite.descriptorCount  = 1;
-            descriptorWrite.pBufferInfo      = &bufferInfo;            // 指定描述符引用的缓冲数据
-            descriptorWrite.pImageInfo       = nullptr;                // 指定描述符引用的图像数据
-            descriptorWrite.pTexelBufferView = nullptr;                // 指定描述符引用的缓冲视图
+            descriptorWrite.pBufferInfo      = &bufferInfo;
+            descriptorWrite.pImageInfo       = nullptr;
+            descriptorWrite.pTexelBufferView = nullptr;
 
-            // 更新描述符的配置
             vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+        }
+
+        return modelUniform;
+    }
+
+    /// @brief 创建描述符池，描述符集需要通过描述符池来创建
+    void CreateDescriptorPool()
+    {
+        VkDescriptorPoolSize poolSize {};
+        poolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 100;
+
+        VkDescriptorPoolCreateInfo poolInfo {};
+        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &poolSize;
+        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 100;
+        poolInfo.flags         = 0;
+
+        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
+        {
+            throw std::runtime_error("failed to create descriptor pool");
         }
     }
 
@@ -4641,11 +4687,8 @@ private:
     size_t m_currentFrame {0};
     bool m_framebufferResized {false};
     VkDescriptorSetLayout m_descriptorSetLayout {nullptr};
-    std::vector<VkBuffer> m_uniformBuffers {};
-    std::vector<VkDeviceMemory> m_uniformBuffersMemory {};
-    std::vector<void*> m_uniformBuffersMapped {};
+
     VkDescriptorPool m_descriptorPool {nullptr};
-    std::vector<VkDescriptorSet> m_descriptorSets {};
     VkImage m_depthImage {nullptr};
     VkDeviceMemory m_depthImageMemory {nullptr};
     VkImageView m_depthImageView {nullptr};
