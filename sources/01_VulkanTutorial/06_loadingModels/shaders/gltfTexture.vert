@@ -11,13 +11,13 @@ layout(push_constant) uniform Pushconstant{
     mat4 proj;
 } PC;
 
-layout(binding = 0) uniform UniformBufferObject{
+layout(set = 0, binding = 0) uniform UniformBufferObject_0 {
     mat4 model;
-} UBO;
+} UBO_Model;
 
 void main() 
 {
-    vec4 viewPos = PC.view * UBO.model * vec4(inPos, 1.);
+    vec4 viewPos = PC.view * UBO_Model.model * vec4(inPos, 1.);
     gl_Position  = PC.proj * viewPos;
     outViewPos   = vec3(viewPos);
     outTexCoord  = inTexCoord;

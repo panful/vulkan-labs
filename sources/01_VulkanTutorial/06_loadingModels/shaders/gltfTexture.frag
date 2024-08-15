@@ -5,9 +5,11 @@ layout(location = 1) in vec2 inTexCoord;
 
 layout(location = 0) out vec4 outColor;
 
+layout(set = 1, binding = 0) uniform sampler2D texSampler;
+
 void main() 
 {
-    vec3 lightColor = vec3(inTexCoord.x, inTexCoord.y, 0.);
+    vec3 lightColor = vec3(texture(texSampler, inTexCoord));
     
     vec3 dx = dFdx(inViewPos);
     vec3 dy = dFdy(inViewPos);
