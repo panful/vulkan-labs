@@ -2936,8 +2936,23 @@ private:
         // 5.需要绑定的描述符集个数
         // 6.用于绑定的描述符集数组
         // 7.8.指定动态描述符的数组偏移
-        VkDescriptorSet descriptorSets[2] {m_descriptorSets[m_currentFrame], m_descriptorSets[m_currentFrame + 2]};
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
+
+        // 分开绑定或者放在一起绑定都可以
+        bool set_type {true};
+        if (set_type)
+        {
+            VkDescriptorSet descriptorSets[2] {m_descriptorSets[m_currentFrame], m_descriptorSets[m_currentFrame + 2]};
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
+        }
+        else
+        {
+            vkCmdBindDescriptorSets(
+                commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets[m_currentFrame], 0, nullptr
+            );
+            vkCmdBindDescriptorSets(
+                commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 1, 1, &m_descriptorSets[m_currentFrame + 2], 0, nullptr
+            );
+        }
 
         // 提交绘制操作到指定缓冲
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
