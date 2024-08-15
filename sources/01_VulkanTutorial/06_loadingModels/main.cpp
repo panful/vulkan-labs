@@ -2411,34 +2411,37 @@ struct UniformBufferObject
 
 struct Vertex
 {
-    glm::vec3 pos {0.f, 0.f, 0.f};
+    using pos_type = glm::vec3;
+    using tex_type = glm::vec2;
 
-    // glm::vec3 color {0.f, 0.f, 0.f};
-
-    static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept
+    static constexpr std::array<VkVertexInputBindingDescription, 2> GetBindingDescriptions() noexcept
     {
-        VkVertexInputBindingDescription bindingDescription {};
+        std::array<VkVertexInputBindingDescription, 2> bindingDescriptions {};
 
-        bindingDescription.binding   = 0;
-        bindingDescription.stride    = sizeof(Vertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        bindingDescriptions[0].binding   = 0;
+        bindingDescriptions[0].stride    = sizeof(pos_type);
+        bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        return bindingDescription;
+        bindingDescriptions[1].binding   = 1;
+        bindingDescriptions[1].stride    = sizeof(tex_type);
+        bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return bindingDescriptions;
     }
 
-    static constexpr std::array<VkVertexInputAttributeDescription, 1> GetAttributeDescriptions() noexcept
+    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
     {
-        std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions {};
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
 
         attributeDescriptions[0].binding  = 0;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset   = offsetof(Vertex, pos);
+        attributeDescriptions[0].offset   = 0;
 
-        // attributeDescriptions[1].binding  = 0;
-        // attributeDescriptions[1].location = 1;
-        // attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-        // attributeDescriptions[1].offset   = offsetof(Vertex, color);
+        attributeDescriptions[1].binding  = 1;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[1].offset   = 0;
 
         return attributeDescriptions;
     }
@@ -2721,6 +2724,47 @@ private:
         nodes.emplace_back(std::move(tempNode));
     }
 
+    /// @brief
+    /// @param accessor
+    /// @return dataPointer dataSize elementCount bufferInfo
+    std::tuple<const void*, size_t, uint32_t, std::string> ParseBuffer(const tinygltf::Accessor& accessor)
+    {
+        const auto& bufferView  = m_gltfModel.bufferViews[accessor.bufferView];
+        const auto dataPointer  = &m_gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
+        const auto elementCount = accessor.count;
+
+        auto dataSize = elementCount;
+
+        switch (accessor.type)
+        {
+            case TINYGLTF_TYPE_VEC2:
+                dataSize *= 2;
+                break;
+            case TINYGLTF_TYPE_VEC3:
+                dataSize *= 3;
+                break;
+            default:
+                std::cout << std::format("type {} not supported\n", accessor.type);
+                break;
+        }
+
+        switch (accessor.componentType)
+        {
+            case TINYGLTF_COMPONENT_TYPE_FLOAT:
+                dataSize *= sizeof(float);
+                break;
+            case TINYGLTF_COMPONENT_TYPE_DOUBLE:
+                dataSize *= sizeof(double);
+                break;
+            default:
+                break;
+        }
+
+        auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(dataSize);
+
+        return std::make_tuple(dataPointer, dataSize, static_cast<uint32_t>(elementCount), bufferInfo);
+    }
+
     void ParseMesh(const std::unique_ptr<Mesh>& mesh, const tinygltf::Mesh& gltfMesh)
     {
         m_imguiText += std::format("    Mesh : {}\n", gltfMesh.name);
@@ -2735,34 +2779,39 @@ private:
 
             if (primitive.attributes.contains("POSITION"))
             {
-                const auto& accessor   = m_gltfModel.accessors[primitive.attributes.at("POSITION")];
-                const auto& bufferView = m_gltfModel.bufferViews[accessor.bufferView];
+                const auto& accessor = m_gltfModel.accessors[primitive.attributes.at("POSITION")];
+                const auto& buffer   = ParseBuffer(accessor);
 
-                auto dataPointer = &m_gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
-                auto bufferSize  = accessor.count; // 顶点个数
+                m_imguiText += std::format("        Position : {}\n", std::get<2>(buffer));
 
-                m_imguiText += std::format("        Position : {}\n", accessor.count);
-
-                if (TINYGLTF_TYPE_VEC3 == accessor.type)
+                if (!m_model->buffers.contains(std::get<3>(buffer)))
                 {
-                    bufferSize *= 3; // 维度 vec3<T>
+                    m_model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
                 }
 
-                if (TINYGLTF_COMPONENT_TYPE_FLOAT == accessor.componentType)
-                {
-                    bufferSize *= sizeof(float); // 数据类型 float
-                }
-
-                auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(bufferSize);
-                if (!m_model->buffers.contains(bufferInfo))
-                {
-                    m_model->buffers.try_emplace(bufferInfo, CreateVertexBuffer(bufferSize, dataPointer));
-                }
-
-                tempPrimitive->position = std::move(bufferInfo);
+                tempPrimitive->position = std::get<3>(buffer);
             }
 
             if (primitive.attributes.contains("NORMAL"))
+            {
+            }
+
+            if (primitive.attributes.contains("TEXCOORD_0"))
+            {
+                auto& accessor     = m_gltfModel.accessors[primitive.attributes.at("TEXCOORD_0")];
+                const auto& buffer = ParseBuffer(accessor);
+
+                m_imguiText += std::format("        TexCoord_0 : {}\n", std::get<2>(buffer));
+
+                if (!m_model->buffers.contains(std::get<3>(buffer)))
+                {
+                    m_model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                }
+
+                tempPrimitive->texCoord = std::get<3>(buffer);
+            }
+
+            if (primitive.attributes.contains("TANGENT"))
             {
             }
 
@@ -2777,7 +2826,10 @@ private:
 
                 m_imguiText += std::format("        Index : {}\n", accessor.count);
 
-                // cmdDrawIndex TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER == bufferView.target
+                if (TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER != bufferView.target)
+                {
+                    throw std::runtime_error("Only supports vkCmdDrawIndexed");
+                }
 
                 switch (accessor.componentType)
                 {
@@ -2832,10 +2884,12 @@ private:
 
             for (const auto& primitive : node->mesh->primitives)
             {
-                VkBuffer vertexBuffers[] = {m_model->buffers.at(primitive->position.value())->buffer};
-                VkDeviceSize offsets[]   = {0};
+                VkBuffer vertexBuffers[] = {
+                    m_model->buffers.at(primitive->position.value())->buffer, m_model->buffers.at(primitive->texCoord.value())->buffer
+                };
+                VkDeviceSize offsets[] = {0, 0};
 
-                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offsets);
                 vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
                 vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
             }
@@ -3479,8 +3533,8 @@ private:
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
     void CreateGraphicsPipeline()
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/01_06_gltf_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/01_06_gltf_frag.spv");
+        auto vertShaderCode = ReadFile("../resources/shaders/01_06_gltfTexture_vert.spv");
+        auto fragShaderCode = ReadFile("../resources/shaders/01_06_gltfTexture_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -3499,14 +3553,14 @@ private:
         fragShaderStageInfo.pName                           = "main";
         fragShaderStageInfo.pSpecializationInfo             = nullptr;
 
-        auto bindingDescription    = Vertex::GetBindingDescription();
+        auto bindingDescriptions   = Vertex::GetBindingDescriptions();
         auto attributeDescriptions = Vertex::GetAttributeDescriptions();
 
         // 顶点信息
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount        = 1;
-        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
+        vertexInputInfo.vertexBindingDescriptionCount        = static_cast<uint32_t>(bindingDescriptions.size());
+        vertexInputInfo.pVertexBindingDescriptions           = bindingDescriptions.data();
         vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>(attributeDescriptions.size());
         vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
 
