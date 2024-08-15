@@ -2422,6 +2422,24 @@ struct Scene
     std::vector<std::unique_ptr<Node>> nodes {};
 };
 
+enum class PipelineType : uint8_t
+{
+    Color,
+    Texture,
+};
+
+struct DescriptorSetLayout
+{
+    VkDescriptorSetLayout descriptorSetLayout {nullptr};
+};
+
+struct Pipeline
+{
+    VkPipeline pipeline {nullptr};
+    VkPipelineLayout pipelineLayout {nullptr};
+    std::vector<std::string> descriptorSetLayouts {};
+};
+
 struct Model
 {
     std::vector<std::unique_ptr<Scene>> scenes {};
@@ -2430,6 +2448,8 @@ struct Model
     std::unordered_map<std::string, std::unique_ptr<Buffer>> buffers;
     std::unordered_map<std::string, std::unique_ptr<Sampler>> samplers;
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
+    std::unordered_map<std::string, std::unique_ptr<Pipeline>> pipelines;
+    std::unordered_map<std::string, std::unique_ptr<DescriptorSetLayout>> descriptorSetLayouts;
 };
 
 struct PushConstant
@@ -2448,34 +2468,28 @@ struct Vertex
     using pos_type = glm::vec3;
     using tex_type = glm::vec2;
 
-    static constexpr std::array<VkVertexInputBindingDescription, 2> GetBindingDescriptions() noexcept
+    static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions(const PipelineType pipelineType) noexcept
     {
-        std::array<VkVertexInputBindingDescription, 2> bindingDescriptions {};
+        std::vector<VkVertexInputBindingDescription> bindingDescriptions {};
+        bindingDescriptions.emplace_back(0, static_cast<uint32_t>(sizeof(pos_type)), VK_VERTEX_INPUT_RATE_VERTEX);
 
-        bindingDescriptions[0].binding   = 0;
-        bindingDescriptions[0].stride    = sizeof(pos_type);
-        bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-        bindingDescriptions[1].binding   = 1;
-        bindingDescriptions[1].stride    = sizeof(tex_type);
-        bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        if (PipelineType::Texture == pipelineType)
+        {
+            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(tex_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+        }
 
         return bindingDescriptions;
     }
 
-    static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept
+    static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions(const PipelineType pipelineType) noexcept
     {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions {};
+        std::vector<VkVertexInputAttributeDescription> attributeDescriptions {};
+        attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
 
-        attributeDescriptions[0].binding  = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset   = 0;
-
-        attributeDescriptions[1].binding  = 1;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format   = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[1].offset   = 0;
+        if (PipelineType::Texture == pipelineType)
+        {
+            attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
+        }
 
         return attributeDescriptions;
     }
@@ -2543,8 +2557,6 @@ private:
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
-        CreateDescriptorSetLayout();
-        CreateGraphicsPipeline();
         CreateCommandPool();
         CreateDepthResources();
         CreateFramebuffers();
@@ -2614,6 +2626,17 @@ private:
         {
             vkDestroySampler(m_device, sampler->sampler, nullptr);
         }
+
+        for (const auto& [_, pipeline] : m_model->pipelines)
+        {
+            vkDestroyPipeline(m_device, pipeline->pipeline, nullptr);
+            vkDestroyPipelineLayout(m_device, pipeline->pipelineLayout, nullptr);
+        }
+
+        for (const auto& [_, descriptorSetLayout] : m_model->descriptorSetLayouts)
+        {
+            vkDestroyDescriptorSetLayout(m_device, descriptorSetLayout->descriptorSetLayout, nullptr);
+        }
     }
 
     void Cleanup() noexcept
@@ -2625,16 +2648,9 @@ private:
         CleanupSwapChain();
         DestroyModel();
 
-        vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-
         vkDestroyDescriptorPool(m_device, m_imguiDescriptorPool, nullptr);
-
         vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-
-        vkDestroyDescriptorSetLayout(m_device, m_modelDescriptorSetLayout, nullptr);
-        vkDestroyDescriptorSetLayout(m_device, m_textureDescriptorSetLayout, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -2700,6 +2716,8 @@ private:
     void ParseModel() noexcept
     {
         m_model = std::make_unique<Model>();
+        CreateDescriptorSetLayouts();
+        CreatePipelines();
 
         uint32_t imguiScene {0};
         for (const auto& scene : m_gltfModel.scenes)
@@ -2749,7 +2767,7 @@ private:
 
         if (node.mesh >= 0)
         {
-            tempNode->modelUniform = CreateModelUniforms(modelMatrix);
+            tempNode->modelUniform = CreateModelUniforms(modelMatrix, m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
             tempNode->modelMatrix  = std::move(modelMatrix);
 
             tempNode->mesh = std::make_unique<Mesh>();
@@ -3025,7 +3043,7 @@ private:
                         }
                     }
 
-                    CreateTextureUniforms(tempTexture);
+                    CreateTextureUniforms(tempTexture, m_model->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
 
                     m_model->textures.try_emplace(textureInfo, std::move(tempTexture));
                     tempPrimitive->material->baseColorTexture = textureInfo;
@@ -3040,38 +3058,53 @@ private:
     {
         if (node->mesh)
         {
-            vkCmdBindDescriptorSets(
-                commandBuffer,
-                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                m_pipelineLayout,
-                0,
-                1,
-                &node->modelUniform->descriptorSets[m_currentFrame],
-                0,
-                nullptr
-            );
-
             for (const auto& primitive : node->mesh->primitives)
             {
-                VkBuffer vertexBuffers[] = {
-                    m_model->buffers.at(primitive->position.value())->buffer, m_model->buffers.at(primitive->texCoord.value())->buffer
-                };
-                VkDeviceSize offsets[] = {0, 0};
+                std::vector<VkBuffer> vertexBuffers {m_model->buffers.at(primitive->position.value())->buffer};
+                std::vector<VkDeviceSize> offsets {0};
+                std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets[m_currentFrame]};
+                VkPipelineLayout pipelineLayout {};
+                VkPipeline pipeline {};
 
-                auto& texture = m_model->textures.at(primitive->material->baseColorTexture.value());
+                if (primitive->material && primitive->material->baseColorTexture)
+                {
+                    pipeline       = m_model->pipelines.at("pipeline_texture")->pipeline;
+                    pipelineLayout = m_model->pipelines.at("pipeline_texture")->pipelineLayout;
+
+                    auto& texture = m_model->textures.at(primitive->material->baseColorTexture.value());
+                    descriptorSets.emplace_back(texture->textureUniform->descriptorSets[m_currentFrame]);
+                    vertexBuffers.emplace_back(m_model->buffers.at(primitive->texCoord.value())->buffer);
+                    offsets.emplace_back(0);
+                }
+                else
+                {
+                    pipeline       = m_model->pipelines.at("pipeline_color")->pipeline;
+                    pipelineLayout = m_model->pipelines.at("pipeline_color")->pipelineLayout;
+                }
+
+                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
                 vkCmdBindDescriptorSets(
                     commandBuffer,
                     VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_pipelineLayout,
-                    1,
-                    1,
-                    &texture->textureUniform->descriptorSets[m_currentFrame],
+                    pipelineLayout,
+                    0,
+                    static_cast<uint32_t>(descriptorSets.size()),
+                    descriptorSets.data(),
                     0,
                     nullptr
                 );
 
-                vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offsets);
+                auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
+
+                PushConstant pc {
+                    .view = glm::lookAt(m_eyePos, m_lookAt, m_viewUp),
+                    .proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f),
+                };
+                pc.proj[1][1] *= -1;
+                vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pc);
+
+                vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets.data());
                 vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
                 vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
             }
@@ -3884,12 +3917,28 @@ private:
         }
     }
 
+    void CreatePipelines()
+    {
+        m_model->pipelines.try_emplace(
+            "pipeline_color",
+            CreateGraphicsPipeline(PipelineType::Color, "../resources/shaders/01_06_gltf_vert.spv", "../resources/shaders/01_06_gltf_frag.spv")
+        );
+        m_model->pipelines.try_emplace(
+            "pipeline_texture",
+            CreateGraphicsPipeline(
+                PipelineType::Texture, "../resources/shaders/01_06_gltfTexture_vert.spv", "../resources/shaders/01_06_gltfTexture_frag.spv"
+            )
+        );
+    }
+
     /// @brief 创建图形管线
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
-    void CreateGraphicsPipeline()
+    std::unique_ptr<Pipeline> CreateGraphicsPipeline(PipelineType pipelineType, const std::string& vertPath, const std::string& fragPath)
     {
-        auto vertShaderCode = ReadFile("../resources/shaders/01_06_gltfTexture_vert.spv");
-        auto fragShaderCode = ReadFile("../resources/shaders/01_06_gltfTexture_frag.spv");
+        auto pipeline = std::make_unique<Pipeline>();
+
+        auto vertShaderCode = ReadFile(vertPath);
+        auto fragShaderCode = ReadFile(fragPath);
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -3908,8 +3957,8 @@ private:
         fragShaderStageInfo.pName                           = "main";
         fragShaderStageInfo.pSpecializationInfo             = nullptr;
 
-        auto bindingDescriptions   = Vertex::GetBindingDescriptions();
-        auto attributeDescriptions = Vertex::GetAttributeDescriptions();
+        auto bindingDescriptions   = Vertex::GetBindingDescriptions(pipelineType);
+        auto attributeDescriptions = Vertex::GetAttributeDescriptions(pipelineType);
 
         // 顶点信息
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
@@ -4012,17 +4061,22 @@ private:
         pushConstantRange.offset              = 0;
         pushConstantRange.size                = sizeof(PushConstant);
 
-        VkDescriptorSetLayout descriptorSetLayouts[] = {m_modelDescriptorSetLayout, m_textureDescriptorSetLayout};
+        std::vector<VkDescriptorSetLayout> descriptorSetLayouts {};
+        descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
+        if (PipelineType::Texture == pipelineType)
+        {
+            descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+        }
 
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount         = 2;
-        pipelineLayoutInfo.pSetLayouts            = descriptorSetLayouts;
+        pipelineLayoutInfo.setLayoutCount         = static_cast<uint32_t>(descriptorSetLayouts.size());
+        pipelineLayoutInfo.pSetLayouts            = descriptorSetLayouts.data();
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
 
-        if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout))
+        if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &pipeline->pipelineLayout))
         {
             throw std::runtime_error("failed to create pipeline layout");
         }
@@ -4042,20 +4096,22 @@ private:
         pipelineInfo.pDepthStencilState           = nullptr;
         pipelineInfo.pColorBlendState             = &colorBlending;
         pipelineInfo.pDynamicState                = &dynamicState;
-        pipelineInfo.layout                       = m_pipelineLayout;
+        pipelineInfo.layout                       = pipeline->pipelineLayout;
         pipelineInfo.renderPass                   = m_renderPass;
-        pipelineInfo.subpass                      = 0;       // 子流程在子流程数组中的索引
-        pipelineInfo.basePipelineHandle           = nullptr; // 以一个创建好的图形管线为基础创建一个新的图形管线
-        pipelineInfo.basePipelineIndex            = -1; // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
+        pipelineInfo.subpass                      = 0;
+        pipelineInfo.basePipelineHandle           = nullptr;
+        pipelineInfo.basePipelineIndex            = -1;
         pipelineInfo.pDepthStencilState           = &depthStencil;
 
-        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline))
+        if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline->pipeline))
         {
             throw std::runtime_error("failed to create graphics pipeline");
         }
 
         vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
         vkDestroyShaderModule(m_device, vertShaderModule, nullptr);
+
+        return pipeline;
     }
 
     /// @brief 使用着色器字节码数组创建 VkShaderModule 对象
@@ -4289,10 +4345,6 @@ private:
         // 3.指定渲染流程如何提供绘制指令的标记
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        // 绑定图形管线
-        // 2.指定管线对象是图形管线还是计算管线
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
-
         VkViewport viewport = {};
         viewport.x          = 0.f;
         viewport.y          = 0.f;
@@ -4308,15 +4360,6 @@ private:
         scissor.extent   = m_swapChainExtent;
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-        auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
-
-        PushConstant pc {
-            .view = glm::lookAt(m_eyePos, m_lookAt, m_viewUp),
-            .proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f),
-        };
-        pc.proj[1][1] *= -1;
-        vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pc);
 
         DrawGLTFModel(commandBuffer);
 
@@ -4629,9 +4672,11 @@ private:
     }
 
     /// @brief 创建着色器使用的每一个描述符绑定信息
-    void CreateDescriptorSetLayout()
+    void CreateDescriptorSetLayouts()
     {
         {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
             VkDescriptorSetLayoutBinding uboLayoutBinding = {};
             uboLayoutBinding.binding                      = 0;
             uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -4644,14 +4689,17 @@ private:
             layoutInfo.bindingCount                    = 1;
             layoutInfo.pBindings                       = &uboLayoutBinding;
 
-            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_modelDescriptorSetLayout))
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
             {
                 throw std::runtime_error("failed to create descriptor set layout");
             }
+
+            m_model->descriptorSetLayouts.try_emplace("uniform_model", std::move(descriptorSetLayout));
         }
 
-        //----------------------------------------------------------------
         {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
             VkDescriptorSetLayoutBinding samplerLayoutBinding {};
             samplerLayoutBinding.binding            = 0;
             samplerLayoutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -4664,18 +4712,20 @@ private:
             layoutInfo.bindingCount                    = 1;
             layoutInfo.pBindings                       = &samplerLayoutBinding;
 
-            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_textureDescriptorSetLayout))
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
             {
                 throw std::runtime_error("failed to create descriptor set layout");
             }
+
+            m_model->descriptorSetLayouts.try_emplace("uniform_sampler", std::move(descriptorSetLayout));
         }
     }
 
-    void CreateTextureUniforms(const std::unique_ptr<Texture>& texture)
+    void CreateTextureUniforms(const std::unique_ptr<Texture>& texture, VkDescriptorSetLayout descriptorSetLayout)
     {
         texture->textureUniform = std::make_unique<TextureUniform>();
 
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_textureDescriptorSetLayout);
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
 
         VkDescriptorSetAllocateInfo allocInfo {};
         allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -4711,7 +4761,7 @@ private:
         }
     }
 
-    std::unique_ptr<ModelUniform> CreateModelUniforms(const glm::mat4& model)
+    std::unique_ptr<ModelUniform> CreateModelUniforms(const glm::mat4& model, VkDescriptorSetLayout descriptorSetLayout)
     {
         auto modelUniform = std::make_unique<ModelUniform>();
 
@@ -4744,7 +4794,7 @@ private:
         }
 
         //---------------------------------------------------------------------
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_modelDescriptorSetLayout);
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
 
         VkDescriptorSetAllocateInfo allocInfo {};
         allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -5196,17 +5246,12 @@ private:
     size_t m_currentFrame {0};
     bool m_framebufferResized {false};
 
-    VkPipelineLayout m_pipelineLayout {nullptr};
-    VkPipeline m_graphicsPipeline {nullptr};
-    VkDescriptorSetLayout m_modelDescriptorSetLayout {nullptr};
-    VkDescriptorSetLayout m_textureDescriptorSetLayout {nullptr};
-
     VkImage m_depthImage {nullptr};
     VkDeviceMemory m_depthImageMemory {nullptr};
     VkImageView m_depthImageView {nullptr};
 
     glm::vec3 m_viewUp {0.f, 1.f, 0.f};
-    glm::vec3 m_eyePos {0.f, 0.f, -3.f};
+    glm::vec3 m_eyePos {0.f, 0.f, -1.f};
     glm::vec3 m_lookAt {0.f};
     double m_mouseLastX {0.0};
     double m_mouseLastY {0.0};
@@ -5216,7 +5261,8 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::filesystem::path m_gltfFilename {"../resources/models/FlightHelmet/FlightHelmet.gltf"};
+    // std::filesystem::path m_gltfFilename {"../resources/models/FlightHelmet/FlightHelmet.gltf"};
+    std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
     tinygltf::Model m_gltfModel {};
     std::unique_ptr<Model> m_model {};
 
