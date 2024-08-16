@@ -2443,12 +2443,23 @@ struct Pipeline
 
 struct Model
 {
+    tinygltf::Model gltfModel {};
+
     std::vector<std::unique_ptr<Scene>> scenes {};
 
     std::unordered_map<std::string, std::unique_ptr<Image>> images;
     std::unordered_map<std::string, std::unique_ptr<Buffer>> buffers;
     std::unordered_map<std::string, std::unique_ptr<Sampler>> samplers;
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
+};
+
+struct Models
+{
+    std::unordered_map<std::string, std::unique_ptr<Model>> models;
+};
+
+struct Context
+{
     std::unordered_map<std::string, std::unique_ptr<Pipeline>> pipelines;
     std::unordered_map<std::string, std::unique_ptr<DescriptorSetLayout>> descriptorSetLayouts;
 };
@@ -2557,7 +2568,7 @@ private:
         CreateDepthResources();
         CreateFramebuffers();
         CreateDescriptorPool();
-        LoadModel();
+        LoadModels();
         CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -2609,39 +2620,42 @@ private:
 
     void DestroyModel() noexcept
     {
-        for (auto& scene : m_model->scenes)
+        for (const auto& [_, model] : m_models->models)
         {
-            for (auto& node : scene->nodes)
+            for (auto& scene : model->scenes)
             {
-                DestroyNode(node);
+                for (auto& node : scene->nodes)
+                {
+                    DestroyNode(node);
+                }
+            }
+
+            for (const auto& [_, buffer] : model->buffers)
+            {
+                vkDestroyBuffer(m_device, buffer->buffer, nullptr);
+                vkFreeMemory(m_device, buffer->bufferMemory, nullptr);
+            }
+
+            for (const auto& [_, image] : model->images)
+            {
+                vkDestroyImage(m_device, image->image, nullptr);
+                vkFreeMemory(m_device, image->imageMemory, nullptr);
+                vkDestroyImageView(m_device, image->imageView, nullptr);
+            }
+
+            for (const auto& [_, sampler] : model->samplers)
+            {
+                vkDestroySampler(m_device, sampler->sampler, nullptr);
             }
         }
 
-        for (const auto& [_, buffer] : m_model->buffers)
-        {
-            vkDestroyBuffer(m_device, buffer->buffer, nullptr);
-            vkFreeMemory(m_device, buffer->bufferMemory, nullptr);
-        }
-
-        for (const auto& [_, image] : m_model->images)
-        {
-            vkDestroyImage(m_device, image->image, nullptr);
-            vkFreeMemory(m_device, image->imageMemory, nullptr);
-            vkDestroyImageView(m_device, image->imageView, nullptr);
-        }
-
-        for (const auto& [_, sampler] : m_model->samplers)
-        {
-            vkDestroySampler(m_device, sampler->sampler, nullptr);
-        }
-
-        for (const auto& [_, pipeline] : m_model->pipelines)
+        for (const auto& [_, pipeline] : m_context->pipelines)
         {
             vkDestroyPipeline(m_device, pipeline->pipeline, nullptr);
             vkDestroyPipelineLayout(m_device, pipeline->pipelineLayout, nullptr);
         }
 
-        for (const auto& [_, descriptorSetLayout] : m_model->descriptorSetLayouts)
+        for (const auto& [_, descriptorSetLayout] : m_context->descriptorSetLayouts)
         {
             vkDestroyDescriptorSetLayout(m_device, descriptorSetLayout->descriptorSetLayout, nullptr);
         }
@@ -2683,23 +2697,48 @@ private:
     }
 
 private:
-    void LoadModel()
+    void LoadModels()
     {
-        tinygltf::TinyGLTF loader {};
+        CreateDescriptorSetLayouts();
+        CreatePipelines();
+
+        m_imguiModels = std::unordered_map<std::string, bool> {
+            {"../resources/models/FlightHelmet/FlightHelmet.gltf", true},
+            {"../resources/models/test.gltf",                      true},
+            {"../resources/models/teapot.gltf",                    true},
+            {"../resources/models/sphere.gltf",                    true}
+        };
+
+        for (const auto& [name, _] : m_imguiModels)
+        {
+            m_models->models.try_emplace(name, std::make_unique<Model>());
+        }
+
+        for (const auto& [name, model] : m_models->models)
+        {
+            LoadModel(name, model);
+        }
+    }
+
+    void LoadModel(const std::string& fileName, const std::unique_ptr<Model>& model)
+    {
+        m_imguiText += ("#Model: " + fileName + "\n");
+
         std::string err {};
         std::string warn {};
 
         bool res {false};
-        if (m_gltfFilename.has_extension())
+        std::filesystem::path path(fileName);
+        if (path.has_extension())
         {
-            auto ex = m_gltfFilename.extension();
-            if (m_gltfFilename.extension() == ".glb")
+            auto ex = path.extension();
+            if (path.extension() == ".glb")
             {
-                res = loader.LoadBinaryFromFile(&m_gltfModel, &err, &warn, m_gltfFilename.string());
+                res = m_gltfLoader.LoadBinaryFromFile(&model->gltfModel, &err, &warn, path.string());
             }
-            if (m_gltfFilename.extension() == ".gltf")
+            if (path.extension() == ".gltf")
             {
-                res = loader.LoadASCIIFromFile(&m_gltfModel, &err, &warn, m_gltfFilename.string());
+                res = m_gltfLoader.LoadASCIIFromFile(&model->gltfModel, &err, &warn, path.string());
             }
         }
 
@@ -2718,17 +2757,13 @@ private:
             throw std::runtime_error("failed to load gltf model");
         }
 
-        ParseModel();
+        ParseModel(model);
     }
 
-    void ParseModel() noexcept
+    void ParseModel(const std::unique_ptr<Model>& model) noexcept
     {
-        m_model = std::make_unique<Model>();
-        CreateDescriptorSetLayouts();
-        CreatePipelines();
-
         uint32_t imguiScene {0};
-        for (const auto& scene : m_gltfModel.scenes)
+        for (const auto& scene : model->gltfModel.scenes)
         {
             m_imguiText += std::format("Scene {} : {}\n", imguiScene++, scene.name);
 
@@ -2737,14 +2772,19 @@ private:
 
             for (const auto& nodeIndex : scene.nodes)
             {
-                ParseNode(tempScene->nodes, m_gltfModel.nodes[nodeIndex]);
+                ParseNode(model, tempScene->nodes, model->gltfModel.nodes[nodeIndex]);
             }
 
-            m_model->scenes.emplace_back(std::move(tempScene));
+            model->scenes.emplace_back(std::move(tempScene));
         }
     }
 
-    void ParseNode(std::vector<std::unique_ptr<Node>>& nodes, const tinygltf::Node& node, const glm::mat4& matrix = glm::mat4(1.f))
+    void ParseNode(
+        const std::unique_ptr<Model>& model,
+        std::vector<std::unique_ptr<Node>>& nodes,
+        const tinygltf::Node& node,
+        const glm::mat4& matrix = glm::mat4(1.f)
+    )
     {
         m_imguiText += std::format("  Node {} :\n", node.name);
 
@@ -2775,16 +2815,16 @@ private:
 
         if (node.mesh >= 0)
         {
-            tempNode->modelUniform = CreateUniforms(modelMatrix, m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
+            tempNode->modelUniform = CreateUniforms(modelMatrix, m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
             tempNode->modelMatrix  = std::move(modelMatrix);
 
             tempNode->mesh = std::make_unique<Mesh>();
-            ParseMesh(tempNode->mesh, m_gltfModel.meshes[node.mesh]);
+            ParseMesh(model, tempNode->mesh, model->gltfModel.meshes[node.mesh]);
         }
 
         if (node.camera >= 0)
         {
-            const auto& camera = m_gltfModel.cameras[node.camera];
+            const auto& camera = model->gltfModel.cameras[node.camera];
 
             tempNode->camera       = std::make_unique<Camera>();
             tempNode->camera->name = camera.name;
@@ -2792,7 +2832,7 @@ private:
 
         for (auto child : node.children)
         {
-            ParseNode(tempNode->children, m_gltfModel.nodes[child], modelMatrix);
+            ParseNode(model, tempNode->children, model->gltfModel.nodes[child], modelMatrix);
         }
 
         nodes.emplace_back(std::move(tempNode));
@@ -2801,10 +2841,10 @@ private:
     /// @brief
     /// @param accessor
     /// @return dataPointer dataSize elementCount bufferInfo
-    std::tuple<const void*, size_t, uint32_t, std::string> ParseBuffer(const tinygltf::Accessor& accessor)
+    std::tuple<const void*, size_t, uint32_t, std::string> ParseBuffer(const std::unique_ptr<Model>& model, const tinygltf::Accessor& accessor)
     {
-        const auto& bufferView  = m_gltfModel.bufferViews[accessor.bufferView];
-        const auto dataPointer  = &m_gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
+        const auto& bufferView  = model->gltfModel.bufferViews[accessor.bufferView];
+        const auto dataPointer  = &model->gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
         const auto elementCount = accessor.count;
 
         auto dataSize = elementCount;
@@ -2839,7 +2879,7 @@ private:
         return std::make_tuple(dataPointer, dataSize, static_cast<uint32_t>(elementCount), bufferInfo);
     }
 
-    std::string ParseImage(const tinygltf::Image& image)
+    std::string ParseImage(const std::unique_ptr<Model>& model, const tinygltf::Image& image)
     {
         std::unique_ptr<Image> tempImage {};
         std::string imageInfo {};
@@ -2895,7 +2935,7 @@ private:
 
             imageInfo += ("ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(image.image.data())) + "\tsize: " + std::to_string(dataSize));
 
-            if (!m_model->images.contains(imageInfo))
+            if (!model->images.contains(imageInfo))
             {
                 tempImage = CreateTextureImage(image.image.data(), dataSize, image.width, image.height, format);
             }
@@ -2906,12 +2946,12 @@ private:
         }
 
         tempImage->name = image.name;
-        m_model->images.try_emplace(imageInfo, std::move(tempImage));
+        model->images.try_emplace(imageInfo, std::move(tempImage));
 
         return imageInfo;
     }
 
-    void ParseMesh(const std::unique_ptr<Mesh>& mesh, const tinygltf::Mesh& gltfMesh)
+    void ParseMesh(const std::unique_ptr<Model>& model, const std::unique_ptr<Mesh>& mesh, const tinygltf::Mesh& gltfMesh)
     {
         m_imguiText += std::format("    Mesh : {}\n", gltfMesh.name);
 
@@ -2925,14 +2965,14 @@ private:
 
             if (primitive.attributes.contains("POSITION"))
             {
-                const auto& accessor = m_gltfModel.accessors[primitive.attributes.at("POSITION")];
-                const auto& buffer   = ParseBuffer(accessor);
+                const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("POSITION")];
+                const auto& buffer   = ParseBuffer(model, accessor);
 
                 m_imguiText += std::format("        Position : {}\n", std::get<2>(buffer));
 
-                if (!m_model->buffers.contains(std::get<3>(buffer)))
+                if (!model->buffers.contains(std::get<3>(buffer)))
                 {
-                    m_model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                    model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
                 }
 
                 tempPrimitive->position = std::get<3>(buffer);
@@ -2944,14 +2984,14 @@ private:
 
             if (primitive.attributes.contains("TEXCOORD_0"))
             {
-                auto& accessor     = m_gltfModel.accessors[primitive.attributes.at("TEXCOORD_0")];
-                const auto& buffer = ParseBuffer(accessor);
+                auto& accessor     = model->gltfModel.accessors[primitive.attributes.at("TEXCOORD_0")];
+                const auto& buffer = ParseBuffer(model, accessor);
 
                 m_imguiText += std::format("        TexCoord_0 : {}\n", std::get<2>(buffer));
 
-                if (!m_model->buffers.contains(std::get<3>(buffer)))
+                if (!model->buffers.contains(std::get<3>(buffer)))
                 {
-                    m_model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                    model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
                 }
 
                 tempPrimitive->texCoord = std::get<3>(buffer);
@@ -2963,9 +3003,9 @@ private:
 
             if (primitive.indices >= 0)
             {
-                auto accessor    = m_gltfModel.accessors[primitive.indices];
-                auto bufferView  = m_gltfModel.bufferViews[accessor.bufferView];
-                auto dataPointer = &m_gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
+                auto accessor    = model->gltfModel.accessors[primitive.indices];
+                auto bufferView  = model->gltfModel.bufferViews[accessor.bufferView];
+                auto dataPointer = &model->gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
                 auto bufferSize  = accessor.count;
 
                 tempPrimitive->indexCount = static_cast<uint32_t>(accessor.count);
@@ -2996,9 +3036,9 @@ private:
                 }
 
                 auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(bufferSize);
-                if (!m_model->buffers.contains(bufferInfo))
+                if (!model->buffers.contains(bufferInfo))
                 {
-                    m_model->buffers.try_emplace(bufferInfo, CreateIndexBuffer(bufferSize, dataPointer));
+                    model->buffers.try_emplace(bufferInfo, CreateIndexBuffer(bufferSize, dataPointer));
                 }
 
                 tempPrimitive->index = std::move(bufferInfo);
@@ -3007,9 +3047,9 @@ private:
             tempPrimitive->material = std::make_unique<Material>();
             if (primitive.material >= 0)
             {
-                m_imguiText += std::format("        Material : {}\n", m_gltfModel.materials[primitive.material].name);
+                m_imguiText += std::format("        Material : {}\n", model->gltfModel.materials[primitive.material].name);
 
-                const auto& material = m_gltfModel.materials[primitive.material];
+                const auto& material = model->gltfModel.materials[primitive.material];
 
                 tempPrimitive->material->name = material.name;
 
@@ -3020,35 +3060,35 @@ private:
                     auto tempTexture = std::make_unique<Texture>();
                     auto textureInfo = std::to_string(textureIndex);
 
-                    const auto& texture = m_gltfModel.textures[textureIndex];
+                    const auto& texture = model->gltfModel.textures[textureIndex];
 
                     if (texture.source >= 0)
                     {
-                        const auto& image = m_gltfModel.images[texture.source];
+                        const auto& image = model->gltfModel.images[texture.source];
 
-                        tempTexture->image = ParseImage(image);
+                        tempTexture->image = ParseImage(model, image);
                     }
 
                     // if (texture.sampler >= 0)
                     // {
-                    //     const auto& sampler = m_gltfModel.samplers[texture.sampler];
+                    //     const auto& sampler = model->gltfModel.samplers[texture.sampler];
                     // }
                     // else
                     {
                         std::string samplerInfo = "default sampler";
                         tempTexture->sampler    = samplerInfo;
 
-                        if (!m_model->samplers.contains(samplerInfo))
+                        if (!model->samplers.contains(samplerInfo))
                         {
                             auto tempSampler     = std::make_unique<Sampler>();
                             tempSampler->sampler = CreateTextureSampler();
-                            m_model->samplers.try_emplace(samplerInfo, std::move(tempSampler));
+                            model->samplers.try_emplace(samplerInfo, std::move(tempSampler));
                         }
                     }
 
-                    CreateTextureUniforms(tempTexture, m_model->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+                    CreateTextureUniforms(model, tempTexture, m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
 
-                    m_model->textures.try_emplace(textureInfo, std::move(tempTexture));
+                    model->textures.try_emplace(textureInfo, std::move(tempTexture));
                     tempPrimitive->material->baseColorTexture = textureInfo;
                 }
                 else if (material.values.contains("baseColorFactor"))
@@ -3061,7 +3101,7 @@ private:
                     };
 
                     tempPrimitive->material->baseColorFactor =
-                        CreateUniforms(color, m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+                        CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
                 }
                 else
                 {
@@ -3075,20 +3115,20 @@ private:
                 std::array<float, 4> color {0.f, 1.f, 0.f, 1.f};
 
                 tempPrimitive->material->baseColorFactor =
-                    CreateUniforms(color, m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+                    CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
             }
 
             mesh->primitives.emplace_back(std::move(tempPrimitive));
         }
     }
 
-    void DrawNode(const VkCommandBuffer commandBuffer, const std::unique_ptr<Node>& node) const
+    void DrawNode(const std::unique_ptr<Model>& model, const VkCommandBuffer commandBuffer, const std::unique_ptr<Node>& node) const
     {
         if (node->mesh)
         {
             for (const auto& primitive : node->mesh->primitives)
             {
-                std::vector<VkBuffer> vertexBuffers {m_model->buffers.at(primitive->position.value())->buffer};
+                std::vector<VkBuffer> vertexBuffers {model->buffers.at(primitive->position.value())->buffer};
                 std::vector<VkDeviceSize> offsets {0};
                 std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets->descriptorSets[m_currentFrame]};
                 VkPipelineLayout pipelineLayout {};
@@ -3096,18 +3136,18 @@ private:
 
                 if (primitive->material->baseColorTexture)
                 {
-                    pipeline       = m_model->pipelines.at("pipeline_texture")->pipeline;
-                    pipelineLayout = m_model->pipelines.at("pipeline_texture")->pipelineLayout;
+                    pipeline       = m_context->pipelines.at("pipeline_texture")->pipeline;
+                    pipelineLayout = m_context->pipelines.at("pipeline_texture")->pipelineLayout;
 
-                    auto& texture = m_model->textures.at(primitive->material->baseColorTexture.value());
+                    auto& texture = model->textures.at(primitive->material->baseColorTexture.value());
                     descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
-                    vertexBuffers.emplace_back(m_model->buffers.at(primitive->texCoord.value())->buffer);
+                    vertexBuffers.emplace_back(model->buffers.at(primitive->texCoord.value())->buffer);
                     offsets.emplace_back(0);
                 }
                 else if (primitive->material->baseColorFactor)
                 {
-                    pipeline       = m_model->pipelines.at("pipeline_color")->pipeline;
-                    pipelineLayout = m_model->pipelines.at("pipeline_color")->pipelineLayout;
+                    pipeline       = m_context->pipelines.at("pipeline_color")->pipeline;
+                    pipelineLayout = m_context->pipelines.at("pipeline_color")->pipelineLayout;
 
                     descriptorSets.emplace_back(primitive->material->baseColorFactor.value()->descriptorSets->descriptorSets[m_currentFrame]);
                 }
@@ -3139,24 +3179,24 @@ private:
                 vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pc);
 
                 vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets.data());
-                vkCmdBindIndexBuffer(commandBuffer, m_model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
+                vkCmdBindIndexBuffer(commandBuffer, model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
                 vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
             }
         }
 
         for (const auto& child : node->children)
         {
-            DrawNode(commandBuffer, child);
+            DrawNode(model, commandBuffer, child);
         }
     }
 
-    void DrawGLTFModel(const VkCommandBuffer commandBuffer) const noexcept
+    void DrawGLTFModel(const std::unique_ptr<Model>& model, const VkCommandBuffer commandBuffer) const noexcept
     {
-        for (const auto& scene : m_model->scenes)
+        for (const auto& scene : model->scenes)
         {
             for (const auto& node : scene->nodes)
             {
-                DrawNode(commandBuffer, node);
+                DrawNode(model, commandBuffer, node);
             }
         }
     }
@@ -3381,7 +3421,14 @@ private:
     {
         ImGui::NewFrame();
 
-        ImGui::Begin("Display Infomation");
+        ImGui::SetNextWindowPos(ImVec2(10, 10));
+        ImGui::Begin("Display Infomation", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+        for (auto& [name, needDraw] : m_imguiModels)
+        {
+            ImGui::Checkbox(name.c_str(), &needDraw);
+        }
+
         ImGui::Text("%s", m_imguiText.c_str());
         ImGui::End();
 
@@ -3953,11 +4000,11 @@ private:
 
     void CreatePipelines()
     {
-        m_model->pipelines.try_emplace(
+        m_context->pipelines.try_emplace(
             "pipeline_color",
             CreateGraphicsPipeline(PipelineType::Color, "../resources/shaders/01_06_gltf_vert.spv", "../resources/shaders/01_06_gltf_frag.spv")
         );
-        m_model->pipelines.try_emplace(
+        m_context->pipelines.try_emplace(
             "pipeline_texture",
             CreateGraphicsPipeline(
                 PipelineType::Texture, "../resources/shaders/01_06_gltfTexture_vert.spv", "../resources/shaders/01_06_gltfTexture_frag.spv"
@@ -4096,14 +4143,14 @@ private:
         pushConstantRange.size                = sizeof(PushConstant);
 
         std::vector<VkDescriptorSetLayout> descriptorSetLayouts {};
-        descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
+        descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
         if (PipelineType::Texture == pipelineType)
         {
-            descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
         }
         else if (PipelineType::Color == pipelineType)
         {
-            descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
         }
 
         // 管线布局，在着色器中使用 uniform 变量
@@ -4399,7 +4446,13 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        DrawGLTFModel(commandBuffer);
+        for (const auto& [name, needDraw] : m_imguiModels)
+        {
+            if (needDraw && m_models->models.contains(name))
+            {
+                DrawGLTFModel(m_models->models.at(name), commandBuffer);
+            }
+        }
 
         // 绘制ImGui
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
@@ -4732,7 +4785,7 @@ private:
                 throw std::runtime_error("failed to create descriptor set layout");
             }
 
-            m_model->descriptorSetLayouts.try_emplace("uniform_model", std::move(descriptorSetLayout));
+            m_context->descriptorSetLayouts.try_emplace("uniform_model", std::move(descriptorSetLayout));
         }
 
         {
@@ -4755,7 +4808,7 @@ private:
                 throw std::runtime_error("failed to create descriptor set layout");
             }
 
-            m_model->descriptorSetLayouts.try_emplace("uniform_color", std::move(descriptorSetLayout));
+            m_context->descriptorSetLayouts.try_emplace("uniform_color", std::move(descriptorSetLayout));
         }
 
         {
@@ -4778,11 +4831,12 @@ private:
                 throw std::runtime_error("failed to create descriptor set layout");
             }
 
-            m_model->descriptorSetLayouts.try_emplace("uniform_sampler", std::move(descriptorSetLayout));
+            m_context->descriptorSetLayouts.try_emplace("uniform_sampler", std::move(descriptorSetLayout));
         }
     }
 
-    void CreateTextureUniforms(const std::unique_ptr<Texture>& texture, VkDescriptorSetLayout descriptorSetLayout)
+    void
+    CreateTextureUniforms(const std::unique_ptr<Model>& model, const std::unique_ptr<Texture>& texture, VkDescriptorSetLayout descriptorSetLayout)
     {
         texture->descriptorSets = std::make_unique<DescriptorSets>();
 
@@ -4804,8 +4858,8 @@ private:
         {
             VkDescriptorImageInfo imageInfo {};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView   = m_model->images.at(texture->image)->imageView;
-            imageInfo.sampler     = m_model->samplers.at(texture->sampler)->sampler;
+            imageInfo.imageView   = model->images.at(texture->image)->imageView;
+            imageInfo.sampler     = model->samplers.at(texture->sampler)->sampler;
 
             VkWriteDescriptorSet descriptorWrite {};
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -5319,15 +5373,12 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::filesystem::path m_gltfFilename {"../resources/models/FlightHelmet/FlightHelmet.gltf"};
-    // std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
-    // std::filesystem::path m_gltfFilename {"../resources/models/teapot.gltf"};
-    // std::filesystem::path m_gltfFilename {"../resources/models/sphere.gltf"};
-
-    tinygltf::Model m_gltfModel {};
-    std::unique_ptr<Model> m_model {};
+    std::unique_ptr<Models> m_models {std::make_unique<Models>()};
+    std::unique_ptr<Context> m_context {std::make_unique<Context>()};
+    std::unordered_map<std::string, bool> m_imguiModels {};
 
     std::string m_imguiText {};
+    tinygltf::TinyGLTF m_gltfLoader {};
 };
 
 int main()
