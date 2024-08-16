@@ -2353,11 +2353,19 @@ struct Texture
     std::unique_ptr<TextureUniform> textureUniform {};
 };
 
+struct Uniform
+{
+    std::vector<void*> mappeds {};
+    std::vector<VkBuffer> buffers {};
+    std::vector<VkDeviceMemory> memorys {};
+    std::vector<VkDescriptorSet> descriptorSets {};
+};
+
 struct Material
 {
     std::string name {};
 
-    std::optional<glm::vec4> baseColorFactor {};
+    std::optional<std::unique_ptr<Uniform>> baseColorFactor {};
     std::optional<std::string> baseColorTexture {};
 };
 
@@ -2394,20 +2402,12 @@ struct Camera
     std::string name {};
 };
 
-struct ModelUniform
-{
-    std::vector<VkBuffer> uniformBuffers {};
-    std::vector<VkDeviceMemory> uniformBuffersMemory {};
-    std::vector<void*> uniformBuffersMapped {};
-    std::vector<VkDescriptorSet> descriptorSets {};
-};
-
 struct Node
 {
     std::string name {};
 
     glm::mat4 modelMatrix {};
-    std::unique_ptr<ModelUniform> modelUniform {};
+    std::unique_ptr<Uniform> modelUniform {};
 
     std::unique_ptr<Mesh> mesh {};
     std::unique_ptr<Camera> camera {};
@@ -2456,11 +2456,6 @@ struct PushConstant
 {
     alignas(16) glm::mat4 view {glm::mat4(1.f)};
     alignas(16) glm::mat4 proj {glm::mat4(1.f)};
-};
-
-struct UniformBufferObject
-{
-    glm::mat4 model {glm::mat4(1.f)};
 };
 
 struct Vertex
@@ -2584,12 +2579,24 @@ private:
 
     void DestroyNode(const std::unique_ptr<Node>& node) noexcept
     {
-        if (node->mesh)
-        {
+        auto destroyUniform = [this](const std::unique_ptr<Uniform>& uniform) {
             for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
             {
-                vkDestroyBuffer(m_device, node->modelUniform->uniformBuffers[i], nullptr);
-                vkFreeMemory(m_device, node->modelUniform->uniformBuffersMemory[i], nullptr);
+                vkDestroyBuffer(m_device, uniform->buffers[i], nullptr);
+                vkFreeMemory(m_device, uniform->memorys[i], nullptr);
+            }
+        };
+
+        if (node->mesh)
+        {
+            destroyUniform(node->modelUniform);
+
+            for (const auto& primitive : node->mesh->primitives)
+            {
+                if (auto& option_color = primitive->material->baseColorFactor)
+                {
+                    destroyUniform(option_color.value());
+                }
             }
         }
 
@@ -2767,7 +2774,7 @@ private:
 
         if (node.mesh >= 0)
         {
-            tempNode->modelUniform = CreateModelUniforms(modelMatrix, m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
+            tempNode->modelUniform = CreateUniforms(modelMatrix, m_model->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
             tempNode->modelMatrix  = std::move(modelMatrix);
 
             tempNode->mesh = std::make_unique<Mesh>();
@@ -2996,19 +3003,14 @@ private:
                 tempPrimitive->index = std::move(bufferInfo);
             }
 
+            tempPrimitive->material = std::make_unique<Material>();
             if (primitive.material >= 0)
             {
                 m_imguiText += std::format("        Material : {}\n", m_gltfModel.materials[primitive.material].name);
 
                 const auto& material = m_gltfModel.materials[primitive.material];
 
-                tempPrimitive->material       = std::make_unique<Material>();
                 tempPrimitive->material->name = material.name;
-
-                if (material.values.contains("baseColorFactor"))
-                {
-                    tempPrimitive->material->baseColorFactor = glm::make_vec4(material.values.at("baseColorFactor").ColorFactor().data());
-                }
 
                 if (material.values.contains("baseColorTexture"))
                 {
@@ -3048,13 +3050,38 @@ private:
                     m_model->textures.try_emplace(textureInfo, std::move(tempTexture));
                     tempPrimitive->material->baseColorTexture = textureInfo;
                 }
+                else if (material.values.contains("baseColorFactor"))
+                {
+                    std::array<float, 4> color {
+                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[0]),
+                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[1]),
+                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[2]),
+                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[3]),
+                    };
+
+                    tempPrimitive->material->baseColorFactor =
+                        CreateUniforms(color, m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+                }
+                else
+                {
+                    throw std::runtime_error("wrong of material");
+                }
+            }
+            else
+            {
+                tempPrimitive->material->name = "default material";
+
+                std::array<float, 4> color {0.f, 1.f, 0.f, 1.f};
+
+                tempPrimitive->material->baseColorFactor =
+                    CreateUniforms(color, m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
             }
 
             mesh->primitives.emplace_back(std::move(tempPrimitive));
         }
     }
 
-    void DrawNode(const VkCommandBuffer commandBuffer, const std::unique_ptr<Node>& node) const noexcept
+    void DrawNode(const VkCommandBuffer commandBuffer, const std::unique_ptr<Node>& node) const
     {
         if (node->mesh)
         {
@@ -3066,7 +3093,7 @@ private:
                 VkPipelineLayout pipelineLayout {};
                 VkPipeline pipeline {};
 
-                if (primitive->material && primitive->material->baseColorTexture)
+                if (primitive->material->baseColorTexture)
                 {
                     pipeline       = m_model->pipelines.at("pipeline_texture")->pipeline;
                     pipelineLayout = m_model->pipelines.at("pipeline_texture")->pipelineLayout;
@@ -3076,10 +3103,17 @@ private:
                     vertexBuffers.emplace_back(m_model->buffers.at(primitive->texCoord.value())->buffer);
                     offsets.emplace_back(0);
                 }
-                else
+                else if (primitive->material->baseColorFactor)
                 {
                     pipeline       = m_model->pipelines.at("pipeline_color")->pipeline;
                     pipelineLayout = m_model->pipelines.at("pipeline_color")->pipelineLayout;
+
+                    auto x = primitive->material->baseColorFactor.value()->descriptorSets[m_currentFrame];
+                    descriptorSets.emplace_back(x);
+                }
+                else
+                {
+                    throw std::runtime_error("wrong of material");
                 }
 
                 vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -4067,6 +4101,10 @@ private:
         {
             descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
         }
+        else if (PipelineType::Color == pipelineType)
+        {
+            descriptorSetLayouts.emplace_back(m_model->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+        }
 
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
@@ -4700,6 +4738,29 @@ private:
         {
             auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
 
+            VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+            uboLayoutBinding.binding                      = 0;
+            uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            uboLayoutBinding.descriptorCount              = 1;
+            uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
+            uboLayoutBinding.pImmutableSamplers           = nullptr;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+            layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layoutInfo.bindingCount                    = 1;
+            layoutInfo.pBindings                       = &uboLayoutBinding;
+
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
+            {
+                throw std::runtime_error("failed to create descriptor set layout");
+            }
+
+            m_model->descriptorSetLayouts.try_emplace("uniform_color", std::move(descriptorSetLayout));
+        }
+
+        {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
             VkDescriptorSetLayoutBinding samplerLayoutBinding {};
             samplerLayoutBinding.binding            = 0;
             samplerLayoutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -4761,15 +4822,16 @@ private:
         }
     }
 
-    std::unique_ptr<ModelUniform> CreateModelUniforms(const glm::mat4& model, VkDescriptorSetLayout descriptorSetLayout)
+    template <typename T>
+    std::unique_ptr<Uniform> CreateUniforms(const T& data, VkDescriptorSetLayout descriptorSetLayout)
     {
-        auto modelUniform = std::make_unique<ModelUniform>();
+        auto uniform = std::make_unique<Uniform>();
 
-        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+        VkDeviceSize bufferSize = sizeof(T);
 
-        modelUniform->uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        modelUniform->uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        modelUniform->uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+        uniform->buffers.resize(MAX_FRAMES_IN_FLIGHT);
+        uniform->memorys.resize(MAX_FRAMES_IN_FLIGHT);
+        uniform->mappeds.resize(MAX_FRAMES_IN_FLIGHT);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
@@ -4777,20 +4839,16 @@ private:
                 bufferSize,
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                modelUniform->uniformBuffers[i],
-                modelUniform->uniformBuffersMemory[i]
+                uniform->buffers[i],
+                uniform->memorys[i]
             );
-            vkMapMemory(m_device, modelUniform->uniformBuffersMemory[i], 0, bufferSize, 0, &modelUniform->uniformBuffersMapped[i]);
-
-            std::cout << "uniform: " << modelUniform->uniformBuffers[i] << std::endl;
+            vkMapMemory(m_device, uniform->memorys[i], 0, bufferSize, 0, &uniform->mappeds[i]);
         }
 
         //---------------------------------------------------------------------
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            UniformBufferObject ubo {};
-            ubo.model = model;
-            std::memcpy(modelUniform->uniformBuffersMapped[i], &ubo, sizeof(ubo));
+            std::memcpy(uniform->mappeds[i], &data, sizeof(T));
         }
 
         //---------------------------------------------------------------------
@@ -4802,8 +4860,8 @@ private:
         allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         allocInfo.pSetLayouts        = layouts.data();
 
-        modelUniform->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, modelUniform->descriptorSets.data()))
+        uniform->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, uniform->descriptorSets.data()))
         {
             throw std::runtime_error("failed to allocate descriptor sets");
         }
@@ -4811,13 +4869,13 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorBufferInfo bufferInfo {};
-            bufferInfo.buffer = modelUniform->uniformBuffers[i];
+            bufferInfo.buffer = uniform->buffers[i];
             bufferInfo.offset = 0;
-            bufferInfo.range  = sizeof(UniformBufferObject);
+            bufferInfo.range  = sizeof(T);
 
             VkWriteDescriptorSet descriptorWrite {};
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet           = modelUniform->descriptorSets[i];
+            descriptorWrite.dstSet           = uniform->descriptorSets[i];
             descriptorWrite.dstBinding       = 0;
             descriptorWrite.dstArrayElement  = 0;
             descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -4829,7 +4887,7 @@ private:
             vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
         }
 
-        return modelUniform;
+        return uniform;
     }
 
     /// @brief 创建描述符池，描述符集需要通过描述符池来创建
@@ -5251,7 +5309,7 @@ private:
     VkImageView m_depthImageView {nullptr};
 
     glm::vec3 m_viewUp {0.f, 1.f, 0.f};
-    glm::vec3 m_eyePos {0.f, 0.f, -1.f};
+    glm::vec3 m_eyePos {0.f, 0.f, -3.f};
     glm::vec3 m_lookAt {0.f};
     double m_mouseLastX {0.0};
     double m_mouseLastY {0.0};
@@ -5261,8 +5319,11 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    // std::filesystem::path m_gltfFilename {"../resources/models/FlightHelmet/FlightHelmet.gltf"};
-    std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
+    std::filesystem::path m_gltfFilename {"../resources/models/FlightHelmet/FlightHelmet.gltf"};
+    // std::filesystem::path m_gltfFilename {"../resources/models/test.gltf"};
+    // std::filesystem::path m_gltfFilename {"../resources/models/teapot.gltf"};
+    // std::filesystem::path m_gltfFilename {"../resources/models/sphere.gltf"};
+
     tinygltf::Model m_gltfModel {};
     std::unique_ptr<Model> m_model {};
 
