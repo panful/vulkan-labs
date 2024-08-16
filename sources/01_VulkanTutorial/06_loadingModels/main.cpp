@@ -5211,6 +5211,11 @@ private:
     /// @param ypos
     static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos) noexcept
     {
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            return;
+        }
+
         if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
         {
             // 计算鼠标移动的偏移量
@@ -5263,6 +5268,11 @@ private:
     /// @param yoffset 小于0向前滚动，大于0向后滚动
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) noexcept
     {
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            return;
+        }
+
         if (auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window)))
         {
             glm::vec3 direction = glm::normalize(app->m_eyePos - app->m_lookAt);
