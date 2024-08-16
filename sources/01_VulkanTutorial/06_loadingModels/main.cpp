@@ -2362,12 +2362,25 @@ struct Uniform
     std::unique_ptr<DescriptorSets> descriptorSets {std::make_unique<DescriptorSets>()};
 };
 
+struct PbrMetallicRoughness
+{
+    std::optional<std::unique_ptr<Uniform>> baseColorFactor {};
+    std::optional<std::string> baseColorTexture {};
+
+    std::optional<std::unique_ptr<Uniform>> metallicFactor {};
+    std::optional<std::unique_ptr<Uniform>> roughnessFactor {};
+    std::optional<std::string> metallicRoughnessTexture {};
+};
+
 struct Material
 {
     std::string name {};
 
-    std::optional<std::unique_ptr<Uniform>> baseColorFactor {};
-    std::optional<std::string> baseColorTexture {};
+    std::unique_ptr<PbrMetallicRoughness> pbrMetallicRoughness {std::make_unique<PbrMetallicRoughness>()};
+
+    std::optional<std::string> normalTexture {};
+    std::optional<std::string> emissiveTexture {};
+    std::optional<std::string> occlusionTexture {};
 };
 
 struct Buffer
@@ -2605,7 +2618,7 @@ private:
 
             for (const auto& primitive : node->mesh->primitives)
             {
-                if (auto& option_color = primitive->material->baseColorFactor)
+                if (auto& option_color = primitive->material->pbrMetallicRoughness->baseColorFactor)
                 {
                     destroyUniform(option_color.value());
                 }
@@ -2703,10 +2716,11 @@ private:
         CreatePipelines();
 
         m_imguiModels = std::unordered_map<std::string, bool> {
+            {"../resources/models/WaterBottle/WaterBottle.gltf",   true},
             {"../resources/models/FlightHelmet/FlightHelmet.gltf", true},
             {"../resources/models/test.gltf",                      true},
             {"../resources/models/teapot.gltf",                    true},
-            {"../resources/models/sphere.gltf",                    true}
+            {"../resources/models/sphere.gltf",                    true},
         };
 
         for (const auto& [name, _] : m_imguiModels)
@@ -3053,19 +3067,27 @@ private:
 
                 tempPrimitive->material->name = material.name;
 
-                if (material.values.contains("baseColorTexture"))
-                {
-                    auto textureIndex = material.values.at("baseColorTexture").TextureIndex();
+                std::array<float, 4> color {
+                    static_cast<float>(material.pbrMetallicRoughness.baseColorFactor[0]),
+                    static_cast<float>(material.pbrMetallicRoughness.baseColorFactor[1]),
+                    static_cast<float>(material.pbrMetallicRoughness.baseColorFactor[2]),
+                    static_cast<float>(material.pbrMetallicRoughness.baseColorFactor[3]),
+                };
 
-                    auto tempTexture = std::make_unique<Texture>();
-                    auto textureInfo = std::to_string(textureIndex);
+                tempPrimitive->material->pbrMetallicRoughness->baseColorFactor =
+                    CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+
+                if (material.pbrMetallicRoughness.baseColorTexture.index >= 0)
+                {
+                    auto textureIndex = material.pbrMetallicRoughness.baseColorTexture.index;
+                    auto tempTexture  = std::make_unique<Texture>();
+                    auto textureInfo  = std::to_string(textureIndex);
 
                     const auto& texture = model->gltfModel.textures[textureIndex];
 
                     if (texture.source >= 0)
                     {
-                        const auto& image = model->gltfModel.images[texture.source];
-
+                        const auto& image  = model->gltfModel.images[texture.source];
                         tempTexture->image = ParseImage(model, image);
                     }
 
@@ -3089,32 +3111,17 @@ private:
                     CreateTextureUniforms(model, tempTexture, m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
 
                     model->textures.try_emplace(textureInfo, std::move(tempTexture));
-                    tempPrimitive->material->baseColorTexture = textureInfo;
-                }
-                else if (material.values.contains("baseColorFactor"))
-                {
-                    std::array<float, 4> color {
-                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[0]),
-                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[1]),
-                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[2]),
-                        static_cast<float>(material.values.at("baseColorFactor").ColorFactor()[3]),
-                    };
-
-                    tempPrimitive->material->baseColorFactor =
-                        CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
-                }
-                else
-                {
-                    throw std::runtime_error("wrong of material");
+                    tempPrimitive->material->pbrMetallicRoughness->baseColorTexture = textureInfo;
                 }
             }
-            else
+            else // 如果没有材质，则创建一个默认材质
             {
+
                 tempPrimitive->material->name = "default material";
 
                 std::array<float, 4> color {0.f, 1.f, 0.f, 1.f};
 
-                tempPrimitive->material->baseColorFactor =
+                tempPrimitive->material->pbrMetallicRoughness->baseColorFactor =
                     CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
             }
 
@@ -3134,22 +3141,23 @@ private:
                 VkPipelineLayout pipelineLayout {};
                 VkPipeline pipeline {};
 
-                if (primitive->material->baseColorTexture)
+                // 优先使用纹理着色
+                if (auto& baseTexture = primitive->material->pbrMetallicRoughness->baseColorTexture)
                 {
                     pipeline       = m_context->pipelines.at("pipeline_texture")->pipeline;
                     pipelineLayout = m_context->pipelines.at("pipeline_texture")->pipelineLayout;
 
-                    auto& texture = model->textures.at(primitive->material->baseColorTexture.value());
+                    auto& texture = model->textures.at(baseTexture.value());
                     descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
                     vertexBuffers.emplace_back(model->buffers.at(primitive->texCoord.value())->buffer);
                     offsets.emplace_back(0);
                 }
-                else if (primitive->material->baseColorFactor)
+                else if (auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor)
                 {
                     pipeline       = m_context->pipelines.at("pipeline_color")->pipeline;
                     pipelineLayout = m_context->pipelines.at("pipeline_color")->pipelineLayout;
 
-                    descriptorSets.emplace_back(primitive->material->baseColorFactor.value()->descriptorSets->descriptorSets[m_currentFrame]);
+                    descriptorSets.emplace_back(baseColor.value()->descriptorSets->descriptorSets[m_currentFrame]);
                 }
                 else
                 {
