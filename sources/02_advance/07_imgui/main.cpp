@@ -24,9 +24,9 @@ constexpr uint32_t HEIGHT = 600;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 // 需要开启的校验层的名称
-const std::vector<const char*> g_validationLayers = { "VK_LAYER_KHRONOS_validation" };
+const std::vector<const char*> g_validationLayers = {"VK_LAYER_KHRONOS_validation"};
 // 交换链扩展
-const std::vector<const char*> g_deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+const std::vector<const char*> g_deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 // 是否启用校验层
 #ifdef NDEBUG
@@ -153,13 +153,13 @@ private:
     }
 
 private:
-    bool open { true };
-    int comboIndex { 0 };
-    float slider { 50.f };
-    bool checkBox0 { false }, checkBox1 { false }, checkBox2 { false };
-    float inputFloat3[3] { 0.f };
-    int radio { 0 };
-    float color[3] { 1.f };
+    bool open {true};
+    int comboIndex {0};
+    float slider {50.f};
+    bool checkBox0 {false}, checkBox1 {false}, checkBox2 {false};
+    float inputFloat3[3] {0.f};
+    int radio {0};
+    float color[3] {1.f};
 
     /// @brief 添加需要渲染的GUI控件
     void PrepareImGui()
@@ -170,9 +170,9 @@ private:
         {
             ImGui::Begin("Window 0", &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
             {
-                ImGui::SetWindowPos({ 10.f, 10.f });
-                ImGui::SetWindowSize({ 120.f, 100.f });
-                ImGui::TextColored({ 1.f, 1.f, 0.f, 1.f }, "Text");
+                ImGui::SetWindowPos({10.f, 10.f});
+                ImGui::SetWindowSize({120.f, 100.f});
+                ImGui::TextColored({1.f, 1.f, 0.f, 1.f}, "Text");
             }
             ImGui::End();
         }
@@ -193,7 +193,7 @@ private:
 
             //-----------------------------------------------------------------------
             // 下拉列表框
-            const char* const str[] { "0", "1", "2", "3" };
+            const char* const str[] {"0", "1", "2", "3"};
             if (ImGui::Combo("Combo", &comboIndex, str, 4))
             {
                 // 当index改变时会进入
@@ -251,6 +251,12 @@ private:
             if (ImGui::ColorEdit3("ColorEdit3", color))
             {
                 std::cout << "ColorEdit3\t" << color[0] << '\t' << color[1] << '\t' << color[2] << '\n';
+            }
+
+            std::vector<char> inputText(100);
+            if (ImGui::InputText("test_label", inputText.data(), inputText.size()))
+            {
+                std::cout << "InputText\n";
             }
         }
         ImGui::End();
@@ -332,7 +338,7 @@ private:
         // 检查需要开启的校验层是否可以在所有可用的校验层列表中找到
         for (const char* layerName : g_validationLayers)
         {
-            bool layerFound { false };
+            bool layerFound {false};
 
             for (const auto& layerProperties : availableLayers)
             {
@@ -412,7 +418,7 @@ private:
     void PickPhysicalDevice()
     {
         // 获取支持 Vulkan 的显卡数量
-        uint32_t deviceCount { 0 };
+        uint32_t deviceCount {0};
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
 
         if (0 == deviceCount)
@@ -454,7 +460,7 @@ private:
         auto indices             = FindQueueFamilies(device);
         auto extensionsSupported = CheckDeviceExtensionSupported(device);
 
-        bool swapChainAdequate { false };
+        bool swapChainAdequate {false};
         if (extensionsSupported)
         {
             auto swapChainSupport = QuerySwapChainSupport(device);
@@ -510,10 +516,10 @@ private:
         auto indices = FindQueueFamilies(m_physicalDevice);
 
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies { indices.graphicsFamily.value(), indices.presentFamily.value() };
+        std::set<uint32_t> uniqueQueueFamilies {indices.graphicsFamily.value(), indices.presentFamily.value()};
 
         // 控制指令缓存执行顺序的优先级，即使只有一个队列也要显示指定优先级，范围：[0.0, 1.0]
-        float queuePriority { 1.f };
+        float queuePriority {1.f};
         for (auto queueFamily : uniqueQueueFamilies)
         {
             // 描述队列簇中预要申请使用的队列数量
@@ -583,7 +589,7 @@ private:
     /// @return
     bool CheckDeviceExtensionSupported(const VkPhysicalDevice device) const noexcept
     {
-        uint32_t extensionCount { 0 };
+        uint32_t extensionCount {0};
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
         std::vector<VkExtensionProperties> availableExtensions(extensionCount);
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
@@ -610,7 +616,7 @@ private:
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_surface, &details.capabilities);
 
         // 查询表面支持的格式，确保集合对于所有有效的格式可扩充
-        uint32_t formatCount { 0 };
+        uint32_t formatCount {0};
         vkGetPhysicalDeviceSurfaceFormatsKHR(device, m_surface, &formatCount, nullptr);
         if (0 != formatCount)
         {
@@ -619,7 +625,7 @@ private:
         }
 
         // 查询表面支持的呈现模式
-        uint32_t presentModeCount { 0 };
+        uint32_t presentModeCount {0};
         vkGetPhysicalDeviceSurfacePresentModesKHR(device, m_surface, &presentModeCount, nullptr);
         if (0 != presentModeCount)
         {
@@ -643,7 +649,7 @@ private:
         // 表面没有自己的首选格式，直接返回指定的格式
         if (1 == availableFormats.size() && availableFormats.front().format == VK_FORMAT_UNDEFINED)
         {
-            return { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+            return {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
         }
 
         // 遍历格式列表，如果想要的格式存在则直接返回
@@ -703,11 +709,11 @@ private:
         }
         else
         {
-            int width { 0 }, height { 0 };
+            int width {0}, height {0};
             glfwGetFramebufferSize(m_window, &width, &height);
 
             // 使用GLFW窗口的大小来设置交换链中图像的分辨率
-            VkExtent2D actualExtent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+            VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
             actualExtent.width  = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
             actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
@@ -742,9 +748,8 @@ private:
         createInfo.imageArrayLayers         = 1;                     // 图像包含的层次，通常为1，3d图像大于1
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
 
-        auto indices = FindQueueFamilies(m_physicalDevice);
-        uint32_t queueFamilyIndices[]
-            = { static_cast<uint32_t>(indices.graphicsFamily.value()), static_cast<uint32_t>(indices.presentFamily.value()) };
+        auto indices                  = FindQueueFamilies(m_physicalDevice);
+        uint32_t queueFamilyIndices[] = {static_cast<uint32_t>(indices.graphicsFamily.value()), static_cast<uint32_t>(indices.presentFamily.value())};
 
         // 在多个队列族使用交换链图像的方式
         if (indices.graphicsFamily != indices.presentFamily)
@@ -803,7 +808,7 @@ private:
             VkImageViewCreateInfo createInfo           = {};
             createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image                           = m_swapChainImages.at(i);
-            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D; // 1d 2d 3d cube纹理
+            createInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;         // 1d 2d 3d cube纹理
             createInfo.format                          = m_swapChainImageFormat;
             createInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY; // 图像颜色通过的映射
             createInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -846,7 +851,7 @@ private:
         fragShaderStageInfo.pName                           = "main";
         fragShaderStageInfo.pSpecializationInfo             = nullptr;
 
-        VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+        VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
         // 顶点信息
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
@@ -873,7 +878,7 @@ private:
 
         // 裁剪
         VkRect2D scissor = {};
-        scissor.offset   = { 0, 0 };
+        scissor.offset   = {0, 0};
         scissor.extent   = m_swapChainExtent;
 
         VkPipelineViewportStateCreateInfo viewportState = {};
@@ -887,7 +892,7 @@ private:
         VkPipelineRasterizationStateCreateInfo rasterizer = {};
         rasterizer.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         rasterizer.depthClampEnable                       = VK_FALSE;
-        rasterizer.rasterizerDiscardEnable                = VK_FALSE; // 设置为true会禁止一切片段输出到帧缓冲
+        rasterizer.rasterizerDiscardEnable                = VK_FALSE;                // 设置为true会禁止一切片段输出到帧缓冲
         rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth                              = 1.f;
         rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;   // 表面剔除类型，正面、背面、双面剔除
@@ -911,8 +916,8 @@ private:
 
         // 颜色混合，可以对指定帧缓冲单独设置，也可以设置全局颜色混合方式
         VkPipelineColorBlendAttachmentState colorBlendAttachment {};
-        colorBlendAttachment.colorWriteMask
-            = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         colorBlendAttachment.blendEnable = VK_FALSE;
 
         VkPipelineColorBlendStateCreateInfo colorBlending {};
@@ -927,7 +932,7 @@ private:
         colorBlending.blendConstants[3] = 0.0f;
 
         // 动态状态，视口大小、线宽、混合常量等
-        std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
         VkPipelineDynamicStateCreateInfo dynamicState {};
         dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -1014,7 +1019,7 @@ private:
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
         subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments    = &colorAttachmentRef; // 指定颜色附着
+        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
@@ -1160,15 +1165,15 @@ private:
         }
 
         // 清除色，相当于背景色
-        VkClearValue clearColor = { { { .1f, .2f, .3f, 1.f } } };
+        VkClearValue clearColor = {{{.1f, .2f, .3f, 1.f}}};
 
         VkRenderPassBeginInfo renderPassInfo = {};
         renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass            = m_renderPass; // 指定使用的渲染流程对象
         renderPassInfo.framebuffer           = framebuffer;  // 指定使用的帧缓冲对象
-        renderPassInfo.renderArea.offset     = { 0, 0 };     // 指定用于渲染的区域
+        renderPassInfo.renderArea.offset     = {0, 0};       // 指定用于渲染的区域
         renderPassInfo.renderArea.extent     = m_swapChainExtent;
-        renderPassInfo.clearValueCount       = 1; // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
+        renderPassInfo.clearValueCount       = 1;            // 指定使用 VK_ATTACHMENT_LOAD_OP_CLEAR 标记后使用的清除值
         renderPassInfo.pClearValues          = &clearColor;
 
         // 所有可以记录指令到指令缓冲的函数，函数名都带有一个 vkCmd 前缀
@@ -1194,7 +1199,7 @@ private:
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor = {};
-        scissor.offset   = { 0, 0 };
+        scissor.offset   = {0, 0};
         scissor.extent   = m_swapChainExtent;
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
@@ -1224,12 +1229,13 @@ private:
         vkWaitForFences(m_device, 1, &m_inFlightFences.at(m_currentFrame), VK_TRUE, std::numeric_limits<uint64_t>::max());
 
         // 从交换链获取一张图像
-        uint32_t imageIndex { 0 };
+        uint32_t imageIndex {0};
         // 3.获取图像的超时时间，此处禁用图像获取超时
         // 4.通知的同步对象
         // 5.输出可用的交换链图像的索引
         VkResult result = vkAcquireNextImageKHR(
-            m_device, m_swapChain, std::numeric_limits<uint64_t>::max(), m_imageAvailableSemaphores.at(m_currentFrame), VK_NULL_HANDLE, &imageIndex);
+            m_device, m_swapChain, std::numeric_limits<uint64_t>::max(), m_imageAvailableSemaphores.at(m_currentFrame), VK_NULL_HANDLE, &imageIndex
+        );
 
         // VK_ERROR_OUT_OF_DATE_KHR 交换链不能继续使用，通常发生在窗口大小改变后
         // VK_SUBOPTIMAL_KHR 交换链仍然可以使用，但表面属性已经不能准确匹配
@@ -1248,7 +1254,7 @@ private:
         vkResetCommandBuffer(m_commandBuffers.at(imageIndex), 0);
         RecordCommandBuffer(m_commandBuffers.at(imageIndex), m_swapChainFramebuffers.at(imageIndex));
 
-        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
         VkSubmitInfo submitInfo         = {};
         submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1256,7 +1262,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_imageAvailableSemaphores.at(m_currentFrame); // 指定队列开始执行前需要等待的信号量
         submitInfo.pWaitDstStageMask    = waitStages;                                     // 指定需要等待的管线阶段
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex]; // 指定实际被提交执行的指令缓冲对象
+        submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
@@ -1274,9 +1280,9 @@ private:
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定开始呈现操作需要等待的信号量
         presentInfo.swapchainCount     = 1;
-        presentInfo.pSwapchains        = &m_swapChain; // 指定用于呈现图像的交换链
-        presentInfo.pImageIndices      = &imageIndex;  // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr;      // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
+        presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
+        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -1324,7 +1330,7 @@ private:
     /// @brief 重建交换链
     void RecreateSwapChain()
     {
-        int width { 0 }, height { 0 };
+        int width {0}, height {0};
         glfwGetFramebufferSize(m_window, &width, &height);
         while (0 == width || 0 == height)
         {
@@ -1415,8 +1421,12 @@ private:
     /// @param pCallbackData 包含了调试信息的字符串、存储有和消息相关的 Vulkan 对象句柄的数组、数组中的对象个数
     /// @param pUserData 指向了设置回调函数时，传递的数据指针
     /// @return 引发校验层处理的 Vulkan API 调用是否中断，通常只在测试校验层本身时会返回true，其余都应该返回 VK_FALSE
-    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) noexcept
+    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+        VkDebugUtilsMessageTypeFlagsEXT messageType,
+        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void* pUserData
+    ) noexcept
     {
         std::clog << "===========================================\n"
                   << "Debug::validation layer: " << pCallbackData->pMessage << '\n';
@@ -1430,8 +1440,12 @@ private:
     /// @param pAllocator
     /// @param pCallback
     /// @return
-    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-        const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pCallback) noexcept
+    static VkResult CreateDebugUtilsMessengerEXT(
+        VkInstance instance,
+        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
+        const VkAllocationCallbacks* pAllocator,
+        VkDebugUtilsMessengerEXT* pCallback
+    ) noexcept
     {
         // vkCreateDebugUtilsMessengerEXT是一个扩展函数，不会被 Vulkan 库自动加载，所以需要手动加载
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -1450,8 +1464,8 @@ private:
     /// @param instance
     /// @param callback
     /// @param pAllocator
-    static void DestroyDebugUtilsMessengerEXT(
-        VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* pAllocator) noexcept
+    static void
+    DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* pAllocator) noexcept
     {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 
@@ -1487,33 +1501,33 @@ private:
     }
 
 private:
-    GLFWwindow* m_window { nullptr };
-    VkInstance m_instance { nullptr };
-    VkDebugUtilsMessengerEXT m_debugMessenger { nullptr };
-    VkPhysicalDevice m_physicalDevice { nullptr };
-    VkDevice m_device { nullptr };
-    VkQueue m_graphicsQueue { nullptr }; // 图形队列
-    VkSurfaceKHR m_surface { nullptr };
-    VkQueue m_presentQueue { nullptr }; // 呈现队列
-    VkSwapchainKHR m_swapChain { nullptr };
+    GLFWwindow* m_window {nullptr};
+    VkInstance m_instance {nullptr};
+    VkDebugUtilsMessengerEXT m_debugMessenger {nullptr};
+    VkPhysicalDevice m_physicalDevice {nullptr};
+    VkDevice m_device {nullptr};
+    VkQueue m_graphicsQueue {nullptr}; // 图形队列
+    VkSurfaceKHR m_surface {nullptr};
+    VkQueue m_presentQueue {nullptr};  // 呈现队列
+    VkSwapchainKHR m_swapChain {nullptr};
     std::vector<VkImage> m_swapChainImages {};
     VkFormat m_swapChainImageFormat {};
     VkExtent2D m_swapChainExtent {};
     std::vector<VkImageView> m_swapChainImageViews {};
-    VkRenderPass m_renderPass { nullptr };
-    VkPipelineLayout m_pipelineLayout { nullptr };
-    VkPipeline m_graphicsPipeline { nullptr };
+    VkRenderPass m_renderPass {nullptr};
+    VkPipelineLayout m_pipelineLayout {nullptr};
+    VkPipeline m_graphicsPipeline {nullptr};
     std::vector<VkFramebuffer> m_swapChainFramebuffers {};
-    VkCommandPool m_commandPool { nullptr };
+    VkCommandPool m_commandPool {nullptr};
     std::vector<VkCommandBuffer> m_commandBuffers {};
     std::vector<VkSemaphore> m_imageAvailableSemaphores {};
     std::vector<VkSemaphore> m_renderFinishedSemaphores {};
     std::vector<VkFence> m_inFlightFences {};
-    size_t m_currentFrame { 0 };
-    bool m_framebufferResized { false };
+    size_t m_currentFrame {0};
+    bool m_framebufferResized {false};
 
-    uint32_t m_minImageCount { 0 };
-    VkDescriptorPool m_imguiDescriptorPool { nullptr };
+    uint32_t m_minImageCount {0};
+    VkDescriptorPool m_imguiDescriptorPool {nullptr};
 };
 
 int main()

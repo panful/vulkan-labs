@@ -2340,7 +2340,7 @@ struct Image
     VkDeviceMemory imageMemory {nullptr};
 };
 
-struct TextureUniform
+struct DescriptorSets
 {
     std::vector<VkDescriptorSet> descriptorSets {};
 };
@@ -2350,7 +2350,7 @@ struct Texture
     std::string sampler;
     std::string image;
 
-    std::unique_ptr<TextureUniform> textureUniform {};
+    std::unique_ptr<DescriptorSets> descriptorSets {std::make_unique<DescriptorSets>()};
 };
 
 struct Uniform
@@ -2358,7 +2358,8 @@ struct Uniform
     std::vector<void*> mappeds {};
     std::vector<VkBuffer> buffers {};
     std::vector<VkDeviceMemory> memorys {};
-    std::vector<VkDescriptorSet> descriptorSets {};
+
+    std::unique_ptr<DescriptorSets> descriptorSets {std::make_unique<DescriptorSets>()};
 };
 
 struct Material
@@ -3089,7 +3090,7 @@ private:
             {
                 std::vector<VkBuffer> vertexBuffers {m_model->buffers.at(primitive->position.value())->buffer};
                 std::vector<VkDeviceSize> offsets {0};
-                std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets[m_currentFrame]};
+                std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets->descriptorSets[m_currentFrame]};
                 VkPipelineLayout pipelineLayout {};
                 VkPipeline pipeline {};
 
@@ -3099,7 +3100,7 @@ private:
                     pipelineLayout = m_model->pipelines.at("pipeline_texture")->pipelineLayout;
 
                     auto& texture = m_model->textures.at(primitive->material->baseColorTexture.value());
-                    descriptorSets.emplace_back(texture->textureUniform->descriptorSets[m_currentFrame]);
+                    descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
                     vertexBuffers.emplace_back(m_model->buffers.at(primitive->texCoord.value())->buffer);
                     offsets.emplace_back(0);
                 }
@@ -3108,8 +3109,7 @@ private:
                     pipeline       = m_model->pipelines.at("pipeline_color")->pipeline;
                     pipelineLayout = m_model->pipelines.at("pipeline_color")->pipelineLayout;
 
-                    auto x = primitive->material->baseColorFactor.value()->descriptorSets[m_currentFrame];
-                    descriptorSets.emplace_back(x);
+                    descriptorSets.emplace_back(primitive->material->baseColorFactor.value()->descriptorSets->descriptorSets[m_currentFrame]);
                 }
                 else
                 {
@@ -4784,7 +4784,7 @@ private:
 
     void CreateTextureUniforms(const std::unique_ptr<Texture>& texture, VkDescriptorSetLayout descriptorSetLayout)
     {
-        texture->textureUniform = std::make_unique<TextureUniform>();
+        texture->descriptorSets = std::make_unique<DescriptorSets>();
 
         std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
 
@@ -4794,8 +4794,8 @@ private:
         allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         allocInfo.pSetLayouts        = layouts.data();
 
-        texture->textureUniform->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, texture->textureUniform->descriptorSets.data()))
+        texture->descriptorSets->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, texture->descriptorSets->descriptorSets.data()))
         {
             throw std::runtime_error("failed to allocate descriptor sets");
         }
@@ -4809,7 +4809,7 @@ private:
 
             VkWriteDescriptorSet descriptorWrite {};
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet           = texture->textureUniform->descriptorSets[i];
+            descriptorWrite.dstSet           = texture->descriptorSets->descriptorSets[i];
             descriptorWrite.dstBinding       = 0;
             descriptorWrite.dstArrayElement  = 0;
             descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -4860,8 +4860,8 @@ private:
         allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         allocInfo.pSetLayouts        = layouts.data();
 
-        uniform->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, uniform->descriptorSets.data()))
+        uniform->descriptorSets->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, uniform->descriptorSets->descriptorSets.data()))
         {
             throw std::runtime_error("failed to allocate descriptor sets");
         }
@@ -4875,7 +4875,7 @@ private:
 
             VkWriteDescriptorSet descriptorWrite {};
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet           = uniform->descriptorSets[i];
+            descriptorWrite.dstSet           = uniform->descriptorSets->descriptorSets[i];
             descriptorWrite.dstBinding       = 0;
             descriptorWrite.dstArrayElement  = 0;
             descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
