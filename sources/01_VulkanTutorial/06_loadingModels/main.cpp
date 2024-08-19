@@ -2390,17 +2390,17 @@ struct Buffer
 
 struct Primitive
 {
-    std::optional<std::string> position {};
-    std::optional<std::string> texCoord {};
-    std::optional<std::string> normal {};
-    std::optional<std::string> color {};
-
-    std::optional<std::string> index {};
+    std::string position {};
+    std::string index {};
 
     VkIndexType indexType {};
     uint32_t indexCount {0};
 
     std::unique_ptr<Material> material {};
+
+    std::optional<std::string> texCoord {};
+    std::optional<std::string> normal {};
+    std::optional<std::string> color {};
 };
 
 struct Mesh
@@ -3215,7 +3215,7 @@ private:
             for (const auto& primitive : node->mesh->primitives)
             {
                 std::vector<VkBuffer> vertexBuffers {
-                    model->buffers.at(primitive->position.value())->buffer, model->buffers.at(primitive->normal.value())->buffer
+                    model->buffers.at(primitive->position)->buffer, model->buffers.at(primitive->normal.value())->buffer
                 };
                 std::vector<VkDeviceSize> offsets {0, 0};
                 std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets->descriptorSets[m_currentFrame]};
@@ -3278,7 +3278,7 @@ private:
                 );
 
                 vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets.data());
-                vkCmdBindIndexBuffer(commandBuffer, model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
+                vkCmdBindIndexBuffer(commandBuffer, model->buffers.at(primitive->index)->buffer, 0, primitive->indexType);
                 vkCmdDrawIndexed(commandBuffer, primitive->indexCount, 1, 0, 0, 0);
             }
         }
