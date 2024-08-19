@@ -2367,8 +2367,7 @@ struct PbrMetallicRoughness
     std::optional<std::unique_ptr<Uniform>> baseColorFactor {};
     std::optional<std::string> baseColorTexture {};
 
-    std::optional<std::unique_ptr<Uniform>> metallicFactor {};
-    std::optional<std::unique_ptr<Uniform>> roughnessFactor {};
+    std::optional<std::unique_ptr<Uniform>> roughnessMetallicFactor {};
     std::optional<std::string> metallicRoughnessTexture {};
 };
 
@@ -2440,6 +2439,7 @@ enum class PipelineType : uint8_t
 {
     Color,
     Texture,
+    Pbr,
 };
 
 struct DescriptorSetLayout
@@ -2477,16 +2477,22 @@ struct Context
     std::unordered_map<std::string, std::unique_ptr<DescriptorSetLayout>> descriptorSetLayouts;
 };
 
-struct PushConstant
+struct PushConstantVP
 {
     alignas(16) glm::mat4 view {glm::mat4(1.f)};
     alignas(16) glm::mat4 proj {glm::mat4(1.f)};
 };
 
+struct PushConstantCamPos
+{
+    alignas(16) glm::vec3 position;
+};
+
 struct Vertex
 {
-    using pos_type = glm::vec3;
-    using tex_type = glm::vec2;
+    using pos_type      = glm::vec3;
+    using texCoord_type = glm::vec2;
+    using normal_type   = glm::vec3;
 
     static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions(const PipelineType pipelineType) noexcept
     {
@@ -2495,7 +2501,12 @@ struct Vertex
 
         if (PipelineType::Texture == pipelineType)
         {
-            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(tex_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(texCoord_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+        }
+
+        if (PipelineType::Pbr == pipelineType)
+        {
+            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(normal_type)), VK_VERTEX_INPUT_RATE_VERTEX);
         }
 
         return bindingDescriptions;
@@ -2509,6 +2520,11 @@ struct Vertex
         if (PipelineType::Texture == pipelineType)
         {
             attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
+        }
+
+        if (PipelineType::Pbr == pipelineType)
+        {
+            attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
         }
 
         return attributeDescriptions;
@@ -2618,9 +2634,16 @@ private:
 
             for (const auto& primitive : node->mesh->primitives)
             {
-                if (auto& option_color = primitive->material->pbrMetallicRoughness->baseColorFactor)
+                const auto& pbr = primitive->material->pbrMetallicRoughness;
+
+                if (auto& option_color = pbr->baseColorFactor)
                 {
                     destroyUniform(option_color.value());
+                }
+
+                if (auto& option_roughnessMetallic = pbr->roughnessMetallicFactor)
+                {
+                    destroyUniform(option_roughnessMetallic.value());
                 }
             }
         }
@@ -2716,11 +2739,11 @@ private:
         CreatePipelines();
 
         m_imguiModels = std::unordered_map<std::string, bool> {
-            {"../resources/models/WaterBottle/WaterBottle.gltf",   true},
-            {"../resources/models/FlightHelmet/FlightHelmet.gltf", true},
-            {"../resources/models/test.gltf",                      true},
-            {"../resources/models/teapot.gltf",                    true},
-            {"../resources/models/sphere.gltf",                    true},
+            // {"../resources/models/WaterBottle/WaterBottle.gltf",   true},
+            // {"../resources/models/FlightHelmet/FlightHelmet.gltf", true},
+            // {"../resources/models/test.gltf",                      true},
+            // {"../resources/models/teapot.gltf",                    true},
+            {"../resources/models/sphere.gltf", true},
         };
 
         for (const auto& [name, _] : m_imguiModels)
@@ -2994,6 +3017,17 @@ private:
 
             if (primitive.attributes.contains("NORMAL"))
             {
+                const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("NORMAL")];
+                const auto& buffer   = ParseBuffer(model, accessor);
+
+                m_imguiText += std::format("        Normal : {}\n", std::get<2>(buffer));
+
+                if (!model->buffers.contains(std::get<3>(buffer)))
+                {
+                    model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                }
+
+                tempPrimitive->normal = std::get<3>(buffer);
             }
 
             if (primitive.attributes.contains("TEXCOORD_0"))
@@ -3077,6 +3111,51 @@ private:
                 tempPrimitive->material->pbrMetallicRoughness->baseColorFactor =
                     CreateUniforms(color, m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
 
+                std::array<float, 2> roughnessMetallicFactor {
+                    static_cast<float>(material.pbrMetallicRoughness.roughnessFactor),
+                    static_cast<float>(material.pbrMetallicRoughness.metallicFactor)
+                };
+                tempPrimitive->material->pbrMetallicRoughness->roughnessMetallicFactor = CreateUniforms(
+                    roughnessMetallicFactor, m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout
+                );
+
+                if (material.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0)
+                {
+                    auto textureIndex = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
+                    auto tempTexture  = std::make_unique<Texture>();
+                    auto textureInfo  = std::to_string(textureIndex);
+
+                    const auto& texture = model->gltfModel.textures[textureIndex];
+
+                    if (texture.source >= 0)
+                    {
+                        const auto& image  = model->gltfModel.images[texture.source];
+                        tempTexture->image = ParseImage(model, image);
+                    }
+
+                    // if (texture.sampler >= 0)
+                    // {
+                    //     const auto& sampler = model->gltfModel.samplers[texture.sampler];
+                    // }
+                    // else
+                    {
+                        std::string samplerInfo = "default sampler";
+                        tempTexture->sampler    = samplerInfo;
+
+                        if (!model->samplers.contains(samplerInfo))
+                        {
+                            auto tempSampler     = std::make_unique<Sampler>();
+                            tempSampler->sampler = CreateTextureSampler();
+                            model->samplers.try_emplace(samplerInfo, std::move(tempSampler));
+                        }
+                    }
+
+                    CreateTextureUniforms(model, tempTexture, m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+
+                    model->textures.try_emplace(textureInfo, std::move(tempTexture));
+                    tempPrimitive->material->pbrMetallicRoughness->metallicRoughnessTexture = textureInfo;
+                }
+
                 if (material.pbrMetallicRoughness.baseColorTexture.index >= 0)
                 {
                     auto textureIndex = material.pbrMetallicRoughness.baseColorTexture.index;
@@ -3135,11 +3214,17 @@ private:
         {
             for (const auto& primitive : node->mesh->primitives)
             {
-                std::vector<VkBuffer> vertexBuffers {model->buffers.at(primitive->position.value())->buffer};
-                std::vector<VkDeviceSize> offsets {0};
+                std::vector<VkBuffer> vertexBuffers {
+                    model->buffers.at(primitive->position.value())->buffer, model->buffers.at(primitive->normal.value())->buffer
+                };
+                std::vector<VkDeviceSize> offsets {0, 0};
                 std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets->descriptorSets[m_currentFrame]};
                 VkPipelineLayout pipelineLayout {};
                 VkPipeline pipeline {};
+
+                descriptorSets.emplace_back(
+                    primitive->material->pbrMetallicRoughness->roughnessMetallicFactor.value()->descriptorSets->descriptorSets[m_currentFrame]
+                );
 
                 // 优先使用纹理着色
                 if (auto& baseTexture = primitive->material->pbrMetallicRoughness->baseColorTexture)
@@ -3154,9 +3239,10 @@ private:
                 }
                 else if (auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor)
                 {
-                    pipeline       = m_context->pipelines.at("pipeline_color")->pipeline;
-                    pipelineLayout = m_context->pipelines.at("pipeline_color")->pipelineLayout;
-
+                    // pipeline       = m_context->pipelines.at("pipeline_color")->pipeline;
+                    // pipelineLayout = m_context->pipelines.at("pipeline_color")->pipelineLayout;
+                    pipeline       = m_context->pipelines.at("pipeline_pbr")->pipeline;
+                    pipelineLayout = m_context->pipelines.at("pipeline_pbr")->pipelineLayout;
                     descriptorSets.emplace_back(baseColor.value()->descriptorSets->descriptorSets[m_currentFrame]);
                 }
                 else
@@ -3179,12 +3265,17 @@ private:
 
                 auto aspect = static_cast<float>(m_swapChainExtent.width) / static_cast<float>(m_swapChainExtent.height);
 
-                PushConstant pc {
+                PushConstantVP pc {
                     .view = glm::lookAt(m_eyePos, m_lookAt, m_viewUp),
                     .proj = glm::perspective(glm::radians(45.f), aspect, 0.1f, 100.f),
                 };
                 pc.proj[1][1] *= -1;
-                vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstant), &pc);
+                vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantVP), &pc);
+
+                PushConstantCamPos pcCamPos {.position = m_eyePos};
+                vkCmdPushConstants(
+                    commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(PushConstantVP), sizeof(PushConstantCamPos), &pcCamPos
+                );
 
                 vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets.data());
                 vkCmdBindIndexBuffer(commandBuffer, model->buffers.at(primitive->index.value())->buffer, 0, primitive->indexType);
@@ -4018,6 +4109,12 @@ private:
                 PipelineType::Texture, "../resources/shaders/01_06_gltfTexture_vert.spv", "../resources/shaders/01_06_gltfTexture_frag.spv"
             )
         );
+        m_context->pipelines.try_emplace(
+            "pipeline_pbr",
+            CreateGraphicsPipeline(
+                PipelineType::Pbr, "../resources/shaders/01_06_gltfPbrUniform_vert.spv", "../resources/shaders/01_06_gltfPbrUniform_frag.spv"
+            )
+        );
     }
 
     /// @brief 创建图形管线
@@ -4145,14 +4242,33 @@ private:
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates    = dynamicStates.data();
 
-        VkPushConstantRange pushConstantRange = {};
-        pushConstantRange.stageFlags          = VK_SHADER_STAGE_VERTEX_BIT;
-        pushConstantRange.offset              = 0;
-        pushConstantRange.size                = sizeof(PushConstant);
+        std::vector<VkPushConstantRange> pushConstantRanges {};
+
+        VkPushConstantRange pushConstantRangeVP = {};
+        pushConstantRangeVP.stageFlags          = VK_SHADER_STAGE_VERTEX_BIT;
+        pushConstantRangeVP.offset              = 0;
+        pushConstantRangeVP.size                = sizeof(PushConstantVP);
+
+        pushConstantRanges.emplace_back(pushConstantRangeVP);
+
+        if (PipelineType::Pbr == pipelineType)
+        {
+            VkPushConstantRange pushConstantRangeCamPos = {};
+            pushConstantRangeCamPos.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
+            pushConstantRangeCamPos.offset              = sizeof(PushConstantVP);
+            pushConstantRangeCamPos.size                = sizeof(PushConstantCamPos);
+
+            pushConstantRanges.emplace_back(pushConstantRangeCamPos);
+        }
 
         std::vector<VkDescriptorSetLayout> descriptorSetLayouts {};
         descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
-        if (PipelineType::Texture == pipelineType)
+        if (PipelineType::Pbr == pipelineType)
+        {
+            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout);
+            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+        }
+        else if (PipelineType::Texture == pipelineType)
         {
             descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
         }
@@ -4166,8 +4282,8 @@ private:
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount         = static_cast<uint32_t>(descriptorSetLayouts.size());
         pipelineLayoutInfo.pSetLayouts            = descriptorSetLayouts.data();
-        pipelineLayoutInfo.pushConstantRangeCount = 1;
-        pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
+        pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+        pipelineLayoutInfo.pPushConstantRanges    = pushConstantRanges.data();
 
         if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &pipeline->pipelineLayout))
         {
@@ -4817,6 +4933,29 @@ private:
             }
 
             m_context->descriptorSetLayouts.try_emplace("uniform_color", std::move(descriptorSetLayout));
+        }
+
+        {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
+            VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+            uboLayoutBinding.binding                      = 0;
+            uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            uboLayoutBinding.descriptorCount              = 1;
+            uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
+            uboLayoutBinding.pImmutableSamplers           = nullptr;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+            layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layoutInfo.bindingCount                    = 1;
+            layoutInfo.pBindings                       = &uboLayoutBinding;
+
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
+            {
+                throw std::runtime_error("failed to create descriptor set layout");
+            }
+
+            m_context->descriptorSetLayouts.try_emplace("uniform_roughnessFactor_metallicFactor", std::move(descriptorSetLayout));
         }
 
         {
