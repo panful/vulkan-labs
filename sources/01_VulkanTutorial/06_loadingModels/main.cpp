@@ -2442,6 +2442,23 @@ enum class PipelineType : uint8_t
     Pbr,
 };
 
+enum class LightingMode
+{
+    None,
+    Phong,
+    BlinnPhong,
+    PBR,
+    RayTracing
+};
+
+enum class ColoringMode
+{
+    DirectRGB,      ///< 使用 Uniform 设置整个 Drawable 的颜色
+    VertexRGB,      ///< 每个顶点一个颜色
+    CellRGB,        ///< 每个单元一个颜色（点、线、三角面）
+    TextureMapping, ///< 纹理映射
+};
+
 struct DescriptorSetLayout
 {
     VkDescriptorSetLayout descriptorSetLayout {nullptr};
@@ -2454,8 +2471,16 @@ struct Pipeline
     std::vector<std::string> descriptorSetLayouts {};
 };
 
+struct ModelAttributes
+{
+    bool visibility {true};
+
+    std::string infomation {};
+};
+
 struct Model
 {
+    ModelAttributes attributes {};
     tinygltf::Model gltfModel {};
 
     std::vector<std::unique_ptr<Scene>> scenes {};
@@ -2464,11 +2489,6 @@ struct Model
     std::unordered_map<std::string, std::unique_ptr<Buffer>> buffers;
     std::unordered_map<std::string, std::unique_ptr<Sampler>> samplers;
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
-};
-
-struct Models
-{
-    std::unordered_map<std::string, std::unique_ptr<Model>> models;
 };
 
 struct Context
@@ -2656,7 +2676,7 @@ private:
 
     void DestroyModel() noexcept
     {
-        for (const auto& [_, model] : m_models->models)
+        for (const auto& [_, model] : m_models)
         {
             for (auto& scene : model->scenes)
             {
@@ -2738,20 +2758,13 @@ private:
         CreateDescriptorSetLayouts();
         CreatePipelines();
 
-        m_imguiModels = std::unordered_map<std::string, bool> {
-            // {"../resources/models/WaterBottle/WaterBottle.gltf",   true},
-            // {"../resources/models/FlightHelmet/FlightHelmet.gltf", true},
-            // {"../resources/models/test.gltf",                      true},
-            // {"../resources/models/teapot.gltf",                    true},
-            {"../resources/models/sphere.gltf", true},
-        };
+        // m_models.try_emplace("../resources/models/test.gltf", std::make_unique<Model>());
+        // m_models.try_emplace("../resources/models/teapot.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/sphere.gltf", std::make_unique<Model>());
+        // m_models.try_emplace("../resources/models/WaterBottle/WaterBottle.gltf", std::make_unique<Model>());
+        // m_models.try_emplace("../resources/models/FlightHelmet/FlightHelmet.gltf", std::make_unique<Model>());
 
-        for (const auto& [name, _] : m_imguiModels)
-        {
-            m_models->models.try_emplace(name, std::make_unique<Model>());
-        }
-
-        for (const auto& [name, model] : m_models->models)
+        for (const auto& [name, model] : m_models)
         {
             LoadModel(name, model);
         }
@@ -2759,8 +2772,6 @@ private:
 
     void LoadModel(const std::string& fileName, const std::unique_ptr<Model>& model)
     {
-        m_imguiText += ("#Model: " + fileName + "\n");
-
         std::string err {};
         std::string warn {};
 
@@ -2802,7 +2813,7 @@ private:
         uint32_t imguiScene {0};
         for (const auto& scene : model->gltfModel.scenes)
         {
-            m_imguiText += std::format("Scene {} : {}\n", imguiScene++, scene.name);
+            model->attributes.infomation += std::format("Scene {} : {}\n", imguiScene++, scene.name);
 
             auto tempScene  = std::make_unique<Scene>();
             tempScene->name = scene.name;
@@ -2823,7 +2834,7 @@ private:
         const glm::mat4& matrix = glm::mat4(1.f)
     )
     {
-        m_imguiText += std::format("  Node {} :\n", node.name);
+        model->attributes.infomation += std::format("  Node {} :\n", node.name);
 
         auto tempNode  = std::make_unique<Node>();
         tempNode->name = node.name;
@@ -2990,14 +3001,14 @@ private:
 
     void ParseMesh(const std::unique_ptr<Model>& model, const std::unique_ptr<Mesh>& mesh, const tinygltf::Mesh& gltfMesh)
     {
-        m_imguiText += std::format("    Mesh : {}\n", gltfMesh.name);
+        model->attributes.infomation += std::format("    Mesh : {}\n", gltfMesh.name);
 
         mesh->name = gltfMesh.name;
 
         uint32_t imguiPrimitive {0};
         for (const auto& primitive : gltfMesh.primitives)
         {
-            m_imguiText += std::format("      Primitive {} :\n", imguiPrimitive++);
+            model->attributes.infomation += std::format("      Primitive {} :\n", imguiPrimitive++);
             auto tempPrimitive = std::make_unique<Primitive>();
 
             if (primitive.attributes.contains("POSITION"))
@@ -3005,7 +3016,7 @@ private:
                 const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("POSITION")];
                 const auto& buffer   = ParseBuffer(model, accessor);
 
-                m_imguiText += std::format("        Position : {}\n", std::get<2>(buffer));
+                model->attributes.infomation += std::format("        Position : {}\n", std::get<2>(buffer));
 
                 if (!model->buffers.contains(std::get<3>(buffer)))
                 {
@@ -3020,7 +3031,7 @@ private:
                 const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("NORMAL")];
                 const auto& buffer   = ParseBuffer(model, accessor);
 
-                m_imguiText += std::format("        Normal : {}\n", std::get<2>(buffer));
+                model->attributes.infomation += std::format("        Normal : {}\n", std::get<2>(buffer));
 
                 if (!model->buffers.contains(std::get<3>(buffer)))
                 {
@@ -3035,7 +3046,7 @@ private:
                 auto& accessor     = model->gltfModel.accessors[primitive.attributes.at("TEXCOORD_0")];
                 const auto& buffer = ParseBuffer(model, accessor);
 
-                m_imguiText += std::format("        TexCoord_0 : {}\n", std::get<2>(buffer));
+                model->attributes.infomation += std::format("        TexCoord_0 : {}\n", std::get<2>(buffer));
 
                 if (!model->buffers.contains(std::get<3>(buffer)))
                 {
@@ -3058,7 +3069,7 @@ private:
 
                 tempPrimitive->indexCount = static_cast<uint32_t>(accessor.count);
 
-                m_imguiText += std::format("        Index : {}\n", accessor.count);
+                model->attributes.infomation += std::format("        Index : {}\n", accessor.count);
 
                 if (TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER != bufferView.target)
                 {
@@ -3095,7 +3106,7 @@ private:
             tempPrimitive->material = std::make_unique<Material>();
             if (primitive.material >= 0)
             {
-                m_imguiText += std::format("        Material : {}\n", model->gltfModel.materials[primitive.material].name);
+                model->attributes.infomation += std::format("        Material : {}\n", model->gltfModel.materials[primitive.material].name);
 
                 const auto& material = model->gltfModel.materials[primitive.material];
 
@@ -3523,12 +3534,21 @@ private:
         ImGui::SetNextWindowPos(ImVec2(10, 10));
         ImGui::Begin("Display Infomation", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-        for (auto& [name, needDraw] : m_imguiModels)
+        for (const auto& [name, model] : m_models)
         {
-            ImGui::Checkbox(name.c_str(), &needDraw);
+            std::filesystem::path path(name);
+            if (ImGui::TreeNode(path.filename().string().c_str()))
+            {
+                ImGui::Checkbox("Display", &model->attributes.visibility);
+                if (ImGui::TreeNode("Infomation"))
+                {
+                    ImGui::Text("%s", model->attributes.infomation.c_str());
+                    ImGui::TreePop();
+                }
+                ImGui::TreePop();
+            }
         }
 
-        ImGui::Text("%s", m_imguiText.c_str());
         ImGui::End();
 
         ImGui::Render();
@@ -4570,11 +4590,11 @@ private:
 
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        for (const auto& [name, needDraw] : m_imguiModels)
+        for (const auto& [_, model] : m_models)
         {
-            if (needDraw && m_models->models.contains(name))
+            if (model && model->attributes.visibility)
             {
-                DrawGLTFModel(m_models->models.at(name), commandBuffer);
+                DrawGLTFModel(model, commandBuffer);
             }
         }
 
@@ -5530,11 +5550,9 @@ private:
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
 
-    std::unique_ptr<Models> m_models {std::make_unique<Models>()};
     std::unique_ptr<Context> m_context {std::make_unique<Context>()};
-    std::unordered_map<std::string, bool> m_imguiModels {};
+    std::unordered_map<std::string, std::unique_ptr<Model>> m_models {};
 
-    std::string m_imguiText {};
     tinygltf::TinyGLTF m_gltfLoader {};
 };
 
