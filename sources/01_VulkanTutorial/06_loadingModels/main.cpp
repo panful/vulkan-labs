@@ -2388,8 +2388,81 @@ struct Buffer
     VkDeviceMemory bufferMemory {nullptr};
 };
 
+enum class LightingMode : int
+{
+    None,
+    Phong,
+    BlinnPhong,
+    PBR,
+    RayTracing
+};
+
+enum class ColoringMode : int
+{
+    DirectRGB,      ///< 使用 Uniform 设置整个 Drawable 的颜色
+    VertexRGB,      ///< 每个顶点一个颜色
+    CellRGB,        ///< 每个单元一个颜色（点、线、三角面）
+    TextureMapping, ///< 纹理映射
+};
+
 struct Primitive
 {
+    bool vertexColoring()
+    {
+        return false;
+    }
+
+    bool cellColoring()
+    {
+        return false;
+    }
+
+    bool directColoring()
+    {
+        if (material && material->pbrMetallicRoughness && material->pbrMetallicRoughness->baseColorFactor)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    bool textureColoring()
+    {
+        if (material && material->pbrMetallicRoughness && material->pbrMetallicRoughness->baseColorTexture && texCoord)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    bool phong()
+    {
+        return false;
+    }
+
+    bool blinnPhong()
+    {
+        return false;
+    }
+
+    bool pbr()
+    {
+        if (material && material->pbrMetallicRoughness && material->pbrMetallicRoughness->baseColorFactor
+            && material->pbrMetallicRoughness->roughnessMetallicFactor && normal)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    ColoringMode coloringMode {ColoringMode::DirectRGB};
+    LightingMode lightingMode {LightingMode::None};
+
+    std::string name {"primitive"};
+
     std::string position {};
     std::string index {};
 
@@ -2437,26 +2510,10 @@ struct Scene
 
 enum class PipelineType : uint8_t
 {
-    Color,
-    Texture,
-    Pbr,
-};
-
-enum class LightingMode
-{
-    None,
-    Phong,
-    BlinnPhong,
-    PBR,
-    RayTracing
-};
-
-enum class ColoringMode
-{
-    DirectRGB,      ///< 使用 Uniform 设置整个 Drawable 的颜色
-    VertexRGB,      ///< 每个顶点一个颜色
-    CellRGB,        ///< 每个单元一个颜色（点、线、三角面）
-    TextureMapping, ///< 纹理映射
+    DC_NL, // direct color + none light
+    TC_NL,
+    DC_PL,
+    TC_PL, // texture color + pbr light
 };
 
 struct DescriptorSetLayout
@@ -2493,7 +2550,7 @@ struct Model
 
 struct Context
 {
-    std::unordered_map<std::string, std::unique_ptr<Pipeline>> pipelines;
+    std::unordered_map<PipelineType, std::unique_ptr<Pipeline>> pipelines;
     std::unordered_map<std::string, std::unique_ptr<DescriptorSetLayout>> descriptorSetLayouts;
 };
 
@@ -2510,23 +2567,39 @@ struct PushConstantCamPos
 
 struct Vertex
 {
-    using pos_type      = glm::vec3;
-    using texCoord_type = glm::vec2;
+    using position_type = glm::vec3;
     using normal_type   = glm::vec3;
+    using texCoord_type = glm::vec2;
 
     static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions(const PipelineType pipelineType) noexcept
     {
         std::vector<VkVertexInputBindingDescription> bindingDescriptions {};
-        bindingDescriptions.emplace_back(0, static_cast<uint32_t>(sizeof(pos_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+        bindingDescriptions.emplace_back(0, static_cast<uint32_t>(sizeof(position_type)), VK_VERTEX_INPUT_RATE_VERTEX);
 
-        if (PipelineType::Texture == pipelineType)
+        switch (pipelineType)
         {
-            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(texCoord_type)), VK_VERTEX_INPUT_RATE_VERTEX);
-        }
-
-        if (PipelineType::Pbr == pipelineType)
-        {
-            bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(normal_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            case PipelineType::DC_NL:
+            {
+            }
+            break;
+            case PipelineType::TC_NL:
+            {
+                bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(texCoord_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            }
+            break;
+            case PipelineType::DC_PL:
+            {
+                bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(normal_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            }
+            break;
+            case PipelineType::TC_PL:
+            {
+                bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(normal_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+                bindingDescriptions.emplace_back(2, static_cast<uint32_t>(sizeof(texCoord_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            }
+            break;
+            default:
+                break;
         }
 
         return bindingDescriptions;
@@ -2537,14 +2610,30 @@ struct Vertex
         std::vector<VkVertexInputAttributeDescription> attributeDescriptions {};
         attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
 
-        if (PipelineType::Texture == pipelineType)
+        switch (pipelineType)
         {
-            attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
-        }
-
-        if (PipelineType::Pbr == pipelineType)
-        {
-            attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
+            case PipelineType::DC_NL:
+            {
+            }
+            break;
+            case PipelineType::TC_NL:
+            {
+                attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32_SFLOAT, 0);
+            }
+            break;
+            case PipelineType::DC_PL:
+            {
+                attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
+            }
+            break;
+            case PipelineType::TC_PL:
+            {
+                attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
+                attributeDescriptions.emplace_back(2, 2, VK_FORMAT_R32G32_SFLOAT, 0);
+            }
+            break;
+            default:
+                break;
         }
 
         return attributeDescriptions;
@@ -2758,11 +2847,11 @@ private:
         CreateDescriptorSetLayouts();
         CreatePipelines();
 
-        // m_models.try_emplace("../resources/models/test.gltf", std::make_unique<Model>());
-        // m_models.try_emplace("../resources/models/teapot.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/test.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/teapot.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/sphere.gltf", std::make_unique<Model>());
-        // m_models.try_emplace("../resources/models/WaterBottle/WaterBottle.gltf", std::make_unique<Model>());
-        // m_models.try_emplace("../resources/models/FlightHelmet/FlightHelmet.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/WaterBottle/WaterBottle.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/FlightHelmet/FlightHelmet.gltf", std::make_unique<Model>());
 
         for (const auto& [name, model] : m_models)
         {
@@ -3225,40 +3314,86 @@ private:
         {
             for (const auto& primitive : node->mesh->primitives)
             {
-                std::vector<VkBuffer> vertexBuffers {
-                    model->buffers.at(primitive->position)->buffer, model->buffers.at(primitive->normal.value())->buffer
-                };
-                std::vector<VkDeviceSize> offsets {0, 0};
+                std::vector<VkBuffer> vertexBuffers {model->buffers.at(primitive->position)->buffer};
+                std::vector<VkDeviceSize> offsets {0};
+
                 std::vector<VkDescriptorSet> descriptorSets {node->modelUniform->descriptorSets->descriptorSets[m_currentFrame]};
                 VkPipelineLayout pipelineLayout {};
                 VkPipeline pipeline {};
 
-                descriptorSets.emplace_back(
-                    primitive->material->pbrMetallicRoughness->roughnessMetallicFactor.value()->descriptorSets->descriptorSets[m_currentFrame]
-                );
+                switch (primitive->lightingMode)
+                {
+                    case LightingMode::None:
+                        switch (primitive->coloringMode)
+                        {
+                            case ColoringMode::DirectRGB:
+                            {
+                                pipeline       = m_context->pipelines.at(PipelineType::DC_NL)->pipeline;
+                                pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL)->pipelineLayout;
 
-                // 优先使用纹理着色
-                if (auto& baseTexture = primitive->material->pbrMetallicRoughness->baseColorTexture)
-                {
-                    pipeline       = m_context->pipelines.at("pipeline_texture")->pipeline;
-                    pipelineLayout = m_context->pipelines.at("pipeline_texture")->pipelineLayout;
+                                auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
+                                descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+                            }
+                            break;
+                            case ColoringMode::TextureMapping:
+                            {
+                                pipeline       = m_context->pipelines.at(PipelineType::TC_NL)->pipeline;
+                                pipelineLayout = m_context->pipelines.at(PipelineType::TC_NL)->pipelineLayout;
 
-                    auto& texture = model->textures.at(baseTexture.value());
-                    descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
-                    vertexBuffers.emplace_back(model->buffers.at(primitive->texCoord.value())->buffer);
-                    offsets.emplace_back(0);
-                }
-                else if (auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor)
-                {
-                    // pipeline       = m_context->pipelines.at("pipeline_color")->pipeline;
-                    // pipelineLayout = m_context->pipelines.at("pipeline_color")->pipelineLayout;
-                    pipeline       = m_context->pipelines.at("pipeline_pbr")->pipeline;
-                    pipelineLayout = m_context->pipelines.at("pipeline_pbr")->pipelineLayout;
-                    descriptorSets.emplace_back(baseColor.value()->descriptorSets->descriptorSets[m_currentFrame]);
-                }
-                else
-                {
-                    throw std::runtime_error("wrong of material");
+                                auto& baseTexture = primitive->material->pbrMetallicRoughness->baseColorTexture.value();
+                                auto& texture     = model->textures.at(baseTexture);
+                                descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                vertexBuffers.emplace_back(model->buffers.at(primitive->texCoord.value())->buffer);
+                                offsets.emplace_back(0);
+                            }
+                            break;
+                            default:
+                                break;
+                        }
+                        break;
+                    case LightingMode::PBR:
+                        switch (primitive->coloringMode)
+                        {
+                            case ColoringMode::DirectRGB:
+                            {
+                                vertexBuffers.emplace_back(model->buffers.at(primitive->normal.value())->buffer);
+                                offsets.emplace_back(0);
+
+                                pipeline       = m_context->pipelines.at(PipelineType::DC_PL)->pipeline;
+                                pipelineLayout = m_context->pipelines.at(PipelineType::DC_PL)->pipelineLayout;
+
+                                auto& rmFactor = primitive->material->pbrMetallicRoughness->roughnessMetallicFactor.value();
+                                descriptorSets.emplace_back(rmFactor->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
+                                descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+                            }
+                            break;
+                            case ColoringMode::TextureMapping:
+                            {
+                                vertexBuffers.emplace_back(model->buffers.at(primitive->normal.value())->buffer);
+                                vertexBuffers.emplace_back(model->buffers.at(primitive->texCoord.value())->buffer);
+                                offsets.emplace_back(0);
+                                offsets.emplace_back(0);
+
+                                pipeline       = m_context->pipelines.at(PipelineType::TC_PL)->pipeline;
+                                pipelineLayout = m_context->pipelines.at(PipelineType::TC_PL)->pipelineLayout;
+
+                                auto& rmFactor = primitive->material->pbrMetallicRoughness->roughnessMetallicFactor.value();
+                                descriptorSets.emplace_back(rmFactor->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                auto& baseTexture = primitive->material->pbrMetallicRoughness->baseColorTexture.value();
+                                auto& texture     = model->textures.at(baseTexture);
+                                descriptorSets.emplace_back(texture->descriptorSets->descriptorSets[m_currentFrame]);
+                            }
+                            break;
+                            default:
+                                break;
+                        }
+                        break;
+                    default:
+                        break;
                 }
 
                 vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -3283,10 +3418,13 @@ private:
                 pc.proj[1][1] *= -1;
                 vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantVP), &pc);
 
-                PushConstantCamPos pcCamPos {.position = m_eyePos};
-                vkCmdPushConstants(
-                    commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(PushConstantVP), sizeof(PushConstantCamPos), &pcCamPos
-                );
+                if (LightingMode::None != primitive->lightingMode)
+                {
+                    PushConstantCamPos pcCamPos {.position = m_eyePos};
+                    vkCmdPushConstants(
+                        commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(PushConstantVP), sizeof(PushConstantCamPos), &pcCamPos
+                    );
+                }
 
                 vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<uint32_t>(vertexBuffers.size()), vertexBuffers.data(), offsets.data());
                 vkCmdBindIndexBuffer(commandBuffer, model->buffers.at(primitive->index)->buffer, 0, primitive->indexType);
@@ -3526,6 +3664,94 @@ private:
         return buffer;
     }
 
+    void ImguiNode(const std::unique_ptr<Node>& node, uint32_t nodeIndex)
+    {
+        if (ImGui::TreeNode(("node " + std::to_string(nodeIndex++)).c_str()))
+        {
+            if (node->mesh)
+            {
+                if (ImGui::TreeNode("Mesh"))
+                {
+                    uint32_t primitiveIndex {};
+                    for (const auto& primitive : node->mesh->primitives)
+                    {
+                        if (ImGui::TreeNode(("primitive " + std::to_string(primitiveIndex++)).c_str()))
+                        {
+                            int coloring = static_cast<int>(primitive->coloringMode);
+                            int lighting = static_cast<int>(primitive->lightingMode);
+                            if (ImGui::TreeNode("Coloring"))
+                            {
+                                if (primitive->directColoring())
+                                {
+                                    ImGui::RadioButton("Direct", &coloring, static_cast<int>(ColoringMode::DirectRGB));
+                                }
+                                if (primitive->vertexColoring())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("Vertex", &coloring, static_cast<int>(ColoringMode::VertexRGB));
+                                }
+                                if (primitive->cellColoring())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("Cell", &coloring, static_cast<int>(ColoringMode::CellRGB));
+                                }
+                                if (primitive->textureColoring())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("Texture", &coloring, static_cast<int>(ColoringMode::TextureMapping));
+                                }
+                                ImGui::TreePop();
+                            }
+                            primitive->coloringMode = static_cast<ColoringMode>(coloring);
+
+                            if (ImGui::TreeNode("Lighting"))
+                            {
+                                ImGui::RadioButton("None", &lighting, static_cast<int>(LightingMode::None));
+                                if (primitive->phong())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("Phong", &lighting, static_cast<int>(LightingMode::Phong));
+                                }
+                                if (primitive->blinnPhong())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("BlinnPhong", &lighting, static_cast<int>(LightingMode::BlinnPhong));
+                                }
+                                if (primitive->pbr())
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::RadioButton("PBR", &lighting, static_cast<int>(LightingMode::PBR));
+                                }
+                                ImGui::TreePop();
+                            }
+                            primitive->lightingMode = static_cast<LightingMode>(lighting);
+
+                            ImGui::TreePop();
+                        }
+                    }
+
+                    ImGui::TreePop();
+                }
+            }
+
+            if (node->camera)
+            {
+                if (ImGui::TreeNode("Camera"))
+                {
+                    ImGui::Text("TODO");
+                    ImGui::TreePop();
+                }
+            }
+
+            ImGui::TreePop();
+        }
+
+        for (const auto& child : node->children)
+        {
+            ImguiNode(child, nodeIndex++);
+        }
+    }
+
     /// @brief 添加需要渲染的GUI控件
     void PrepareImGui()
     {
@@ -3540,11 +3766,27 @@ private:
             if (ImGui::TreeNode(path.filename().string().c_str()))
             {
                 ImGui::Checkbox("Display", &model->attributes.visibility);
+                uint32_t sceneIndex {};
+                for (auto& scene : model->scenes)
+                {
+                    if (ImGui::TreeNode(("scene " + std::to_string(sceneIndex++)).c_str()))
+                    {
+                        uint32_t nodeIndex {};
+                        for (auto& node : scene->nodes)
+                        {
+                            ImguiNode(node, nodeIndex++);
+                        }
+
+                        ImGui::TreePop();
+                    }
+                }
+
                 if (ImGui::TreeNode("Infomation"))
                 {
                     ImGui::Text("%s", model->attributes.infomation.c_str());
                     ImGui::TreePop();
                 }
+
                 ImGui::TreePop();
             }
         }
@@ -4120,20 +4362,23 @@ private:
     void CreatePipelines()
     {
         m_context->pipelines.try_emplace(
-            "pipeline_color",
-            CreateGraphicsPipeline(PipelineType::Color, "../resources/shaders/01_06_gltf_vert.spv", "../resources/shaders/01_06_gltf_frag.spv")
+            PipelineType::DC_NL,
+            CreateGraphicsPipeline(PipelineType::DC_NL, "../resources/shaders/01_06_dc_nl_vert.spv", "../resources/shaders/01_06_dc_nl_frag.spv")
         );
+
         m_context->pipelines.try_emplace(
-            "pipeline_texture",
-            CreateGraphicsPipeline(
-                PipelineType::Texture, "../resources/shaders/01_06_gltfTexture_vert.spv", "../resources/shaders/01_06_gltfTexture_frag.spv"
-            )
+            PipelineType::DC_PL,
+            CreateGraphicsPipeline(PipelineType::DC_PL, "../resources/shaders/01_06_dc_pl_vert.spv", "../resources/shaders/01_06_dc_pl_frag.spv")
         );
+
         m_context->pipelines.try_emplace(
-            "pipeline_pbr",
-            CreateGraphicsPipeline(
-                PipelineType::Pbr, "../resources/shaders/01_06_gltfPbrUniform_vert.spv", "../resources/shaders/01_06_gltfPbrUniform_frag.spv"
-            )
+            PipelineType::TC_NL,
+            CreateGraphicsPipeline(PipelineType::TC_NL, "../resources/shaders/01_06_tc_nl_vert.spv", "../resources/shaders/01_06_tc_nl_frag.spv")
+        );
+
+        m_context->pipelines.try_emplace(
+            PipelineType::TC_PL,
+            CreateGraphicsPipeline(PipelineType::TC_PL, "../resources/shaders/01_06_tc_pl_vert.spv", "../resources/shaders/01_06_tc_pl_frag.spv")
         );
     }
 
@@ -4271,30 +4516,49 @@ private:
 
         pushConstantRanges.emplace_back(pushConstantRangeVP);
 
-        if (PipelineType::Pbr == pipelineType)
-        {
-            VkPushConstantRange pushConstantRangeCamPos = {};
-            pushConstantRangeCamPos.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
-            pushConstantRangeCamPos.offset              = sizeof(PushConstantVP);
-            pushConstantRangeCamPos.size                = sizeof(PushConstantCamPos);
-
-            pushConstantRanges.emplace_back(pushConstantRangeCamPos);
-        }
-
         std::vector<VkDescriptorSetLayout> descriptorSetLayouts {};
         descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
-        if (PipelineType::Pbr == pipelineType)
+
+        switch (pipelineType)
         {
-            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout);
-            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
-        }
-        else if (PipelineType::Texture == pipelineType)
-        {
-            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
-        }
-        else if (PipelineType::Color == pipelineType)
-        {
-            descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+            case PipelineType::DC_NL:
+            {
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+            }
+            break;
+            case PipelineType::TC_NL:
+            {
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+            }
+            break;
+            case PipelineType::DC_PL:
+            {
+                VkPushConstantRange pushConstantRangeCamPos = {};
+                pushConstantRangeCamPos.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
+                pushConstantRangeCamPos.offset              = sizeof(PushConstantVP);
+                pushConstantRangeCamPos.size                = sizeof(PushConstantCamPos);
+
+                pushConstantRanges.emplace_back(pushConstantRangeCamPos);
+
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout);
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+            }
+            break;
+            case PipelineType::TC_PL:
+            {
+                VkPushConstantRange pushConstantRangeCamPos = {};
+                pushConstantRangeCamPos.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
+                pushConstantRangeCamPos.offset              = sizeof(PushConstantVP);
+                pushConstantRangeCamPos.size                = sizeof(PushConstantCamPos);
+
+                pushConstantRanges.emplace_back(pushConstantRangeCamPos);
+
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout);
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+            }
+            break;
+            default:
+                break;
         }
 
         // 管线布局，在着色器中使用 uniform 变量

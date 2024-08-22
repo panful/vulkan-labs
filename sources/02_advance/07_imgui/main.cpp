@@ -159,6 +159,7 @@ private:
     bool checkBox0 {false}, checkBox1 {false}, checkBox2 {false};
     float inputFloat3[3] {0.f};
     int radio {0};
+    int radio1 {0};
     float color[3] {1.f};
 
     /// @brief 添加需要渲染的GUI控件
@@ -179,89 +180,108 @@ private:
 
         ImGui::Begin("Window 1");
         {
-            //-----------------------------------------------------------------------
-            // 显示文本
-            ImGui::Text("This is a simple GUI");
 
-            //-----------------------------------------------------------------------
-            // 按钮
-            if (ImGui::Button("Test Button"))
+            if (ImGui::TreeNode("tree1"))
             {
-                // 当按钮被点击时会进入
-                std::cout << "clicked button\n";
+                ImGui::RadioButton("Option A", &radio, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("Option B", &radio, 1);
+                ImGui::TreePop();
             }
 
-            //-----------------------------------------------------------------------
-            // 下拉列表框
-            const char* const str[] {"0", "1", "2", "3"};
-            if (ImGui::Combo("Combo", &comboIndex, str, 4))
+            // ImGui::SameLine();
+            if (ImGui::TreeNode("tree2"))
             {
-                // 当index改变时会进入
-                std::cout << "index\t" << comboIndex << '\n';
+
+                ImGui::RadioButton("Option A", &radio, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("Option B", &radio, 1);
+                ImGui::TreePop();
             }
 
-            //-----------------------------------------------------------------------
-            // 滑杆
-            if (ImGui::SliderFloat("Slider", &slider, 10.f, 100.f))
-            {
-                std::cout << "Slider\t" << slider << '\n';
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 显示文本
+            //     ImGui::Text("This is a simple GUI");
 
-            //-----------------------------------------------------------------------
-            // 复选框
-            if (ImGui::Checkbox("Checkbox_0", &checkBox0))
-            {
-                std::cout << "Checkbox_0\t" << checkBox0 << '\n';
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 按钮
+            //     if (ImGui::Button("Test Button"))
+            //     {
+            //         // 当按钮被点击时会进入
+            //         std::cout << "clicked button\n";
+            //     }
 
-            if (ImGui::Checkbox("Checkbox_1", &checkBox1))
-            {
-                std::cout << "Checkbox_1\t" << checkBox1 << '\n';
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 下拉列表框
+            //     const char* const str[] {"0", "1", "2", "3"};
+            //     if (ImGui::Combo("Combo", &comboIndex, str, 4))
+            //     {
+            //         // 当index改变时会进入
+            //         std::cout << "index\t" << comboIndex << '\n';
+            //     }
 
-            if (ImGui::Checkbox("Checkbox_2", &checkBox2))
-            {
-                std::cout << "Checkbox_2\t" << checkBox2 << '\n';
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 滑杆
+            //     if (ImGui::SliderFloat("Slider", &slider, 10.f, 100.f))
+            //     {
+            //         std::cout << "Slider\t" << slider << '\n';
+            //     }
 
-            //-----------------------------------------------------------------------
-            // 输入框
-            if (ImGui::InputFloat3("InputFloat3", inputFloat3))
-            {
-                std::cout << "InputFlot3\t" << inputFloat3[0] << '\t' << inputFloat3[1] << '\t' << inputFloat3[2] << '\n';
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 复选框
+            //     if (ImGui::Checkbox("Checkbox_0", &checkBox0))
+            //     {
+            //         std::cout << "Checkbox_0\t" << checkBox0 << '\n';
+            //     }
 
-            //-----------------------------------------------------------------------
-            // 单选框
-            if (ImGui::RadioButton("Radio_0", &radio, 0))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
-            if (ImGui::SameLine(), ImGui::RadioButton("Radio_1", &radio, 1))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
-            if (ImGui::SameLine(), ImGui::RadioButton("Radio_2", &radio, 2))
-            {
-                std::cout << "Radio\t" << radio << '\n';
-            }
+            //     if (ImGui::Checkbox("Checkbox_1", &checkBox1))
+            //     {
+            //         std::cout << "Checkbox_1\t" << checkBox1 << '\n';
+            //     }
 
-            //-----------------------------------------------------------------------
-            // 颜色选择框
-            if (ImGui::ColorEdit3("ColorEdit3", color))
-            {
-                std::cout << "ColorEdit3\t" << color[0] << '\t' << color[1] << '\t' << color[2] << '\n';
-            }
+            //     if (ImGui::Checkbox("Checkbox_2", &checkBox2))
+            //     {
+            //         std::cout << "Checkbox_2\t" << checkBox2 << '\n';
+            //     }
 
-            std::vector<char> inputText(100);
-            if (ImGui::InputText("test_label", inputText.data(), inputText.size()))
-            {
-                std::cout << "InputText\n";
-            }
+            //     //-----------------------------------------------------------------------
+            //     // 输入框
+            //     if (ImGui::InputFloat3("InputFloat3", inputFloat3))
+            //     {
+            //         std::cout << "InputFlot3\t" << inputFloat3[0] << '\t' << inputFloat3[1] << '\t' << inputFloat3[2] << '\n';
+            //     }
+
+            //     //-----------------------------------------------------------------------
+            //     // 单选框
+            //     if (ImGui::RadioButton("Radio_0", &radio, 0))
+            //     {
+            //         std::cout << "Radio\t" << radio << '\n';
+            //     }
+            //     if (ImGui::SameLine(), ImGui::RadioButton("Radio_1", &radio, 1))
+            //     {
+            //         std::cout << "Radio\t" << radio << '\n';
+            //     }
+            //     if (ImGui::SameLine(), ImGui::RadioButton("Radio_2", &radio, 2))
+            //     {
+            //         std::cout << "Radio\t" << radio << '\n';
+            //     }
+
+            //     //-----------------------------------------------------------------------
+            //     // 颜色选择框
+            //     if (ImGui::ColorEdit3("ColorEdit3", color))
+            //     {
+            //         std::cout << "ColorEdit3\t" << color[0] << '\t' << color[1] << '\t' << color[2] << '\n';
+            //     }
+
+            //     std::vector<char> inputText(100);
+            //     if (ImGui::InputText("test_label", inputText.data(), inputText.size()))
+            //     {
+            //         std::cout << "InputText\n";
+            //     }
         }
         ImGui::End();
 
-        ImGui::ShowDemoWindow(); // 函数内包含所有 ImGUi 控件的使用示例
+        // ImGui::ShowDemoWindow(); // 函数内包含所有 ImGUi 控件的使用示例
 
         ImGui::Render();
     }

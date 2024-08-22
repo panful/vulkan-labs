@@ -11,7 +11,7 @@ layout(push_constant) uniform Pushconstant{
     mat4 proj;
 } PC;
 
-layout(set = 0, binding = 0) uniform UniformBufferObject_0 {
+layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
 } UBO_Model;
 
