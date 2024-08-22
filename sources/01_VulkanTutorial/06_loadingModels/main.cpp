@@ -2360,6 +2360,11 @@ struct Uniform
     std::vector<VkDeviceMemory> memorys {};
 
     std::unique_ptr<DescriptorSets> descriptorSets {std::make_unique<DescriptorSets>()};
+
+    void UpdateUniform(size_t currentFrame, const void* data, size_t size)
+    {
+        std::memcpy(mappeds[currentFrame], data, size);
+    }
 };
 
 struct PbrMetallicRoughness
@@ -2474,6 +2479,9 @@ struct Primitive
     std::optional<std::string> texCoord {};
     std::optional<std::string> normal {};
     std::optional<std::string> color {};
+
+    std::optional<std::vector<std::string>> morphPosition {};
+    std::optional<std::unique_ptr<Uniform>> animationWeight {};
 };
 
 struct Mesh
@@ -2491,6 +2499,7 @@ struct Camera
 struct Node
 {
     std::string name {};
+    int index {};
 
     glm::mat4 modelMatrix {};
     std::unique_ptr<Uniform> modelUniform {};
@@ -2510,10 +2519,11 @@ struct Scene
 
 enum class PipelineType : uint8_t
 {
-    DC_NL, // direct color + none light
+    DC_NL,     // direct color + none light
     TC_NL,
     DC_PL,
-    TC_PL, // texture color + pbr light
+    TC_PL,     // texture color + pbr light
+    DC_NL_AW2, // direct color + none light + animation weights[2]
 };
 
 struct DescriptorSetLayout
@@ -2531,8 +2541,29 @@ struct Pipeline
 struct ModelAttributes
 {
     bool visibility {true};
+    bool animation {false};
+
+    double animationStartTime {};
 
     std::string infomation {};
+};
+
+struct AnimationChannel
+{
+    int node {};
+    int sampler {};
+};
+
+struct AnimationSampler
+{
+    std::vector<float> input {};
+    std::vector<float> output {};
+};
+
+struct Animation
+{
+    std::vector<std::unique_ptr<AnimationChannel>> channels {};
+    std::vector<std::unique_ptr<AnimationSampler>> samplers {};
 };
 
 struct Model
@@ -2541,6 +2572,8 @@ struct Model
     tinygltf::Model gltfModel {};
 
     std::vector<std::unique_ptr<Scene>> scenes {};
+
+    std::vector<std::unique_ptr<Animation>> animations {};
 
     std::unordered_map<std::string, std::unique_ptr<Image>> images;
     std::unordered_map<std::string, std::unique_ptr<Buffer>> buffers;
@@ -2598,6 +2631,12 @@ struct Vertex
                 bindingDescriptions.emplace_back(2, static_cast<uint32_t>(sizeof(texCoord_type)), VK_VERTEX_INPUT_RATE_VERTEX);
             }
             break;
+            case PipelineType::DC_NL_AW2:
+            {
+                bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(position_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+                bindingDescriptions.emplace_back(2, static_cast<uint32_t>(sizeof(position_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            }
+            break;
             default:
                 break;
         }
@@ -2630,6 +2669,12 @@ struct Vertex
             {
                 attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
                 attributeDescriptions.emplace_back(2, 2, VK_FORMAT_R32G32_SFLOAT, 0);
+            }
+            break;
+            case PipelineType::DC_NL_AW2:
+            {
+                attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
+                attributeDescriptions.emplace_back(2, 2, VK_FORMAT_R32G32B32_SFLOAT, 0);
             }
             break;
             default:
@@ -2754,6 +2799,11 @@ private:
                 {
                     destroyUniform(option_roughnessMetallic.value());
                 }
+
+                if (auto& option_animation = primitive->animationWeight)
+                {
+                    destroyUniform(option_animation.value());
+                }
             }
         }
 
@@ -2847,6 +2897,7 @@ private:
         CreateDescriptorSetLayouts();
         CreatePipelines();
 
+        m_models.try_emplace("../resources/models/morph.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/test.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/teapot.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/sphere.gltf", std::make_unique<Model>());
@@ -2897,8 +2948,59 @@ private:
         ParseModel(model);
     }
 
+    std::vector<float> ParseAnimationBuffer(const std::unique_ptr<Model>& model, const tinygltf::Accessor& accessor)
+    {
+        if (accessor.type != TINYGLTF_TYPE_SCALAR)
+        {
+            std::cout << std::format("type {} not supported\n", accessor.type);
+        }
+
+        if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT)
+        {
+            std::cout << std::format("componentType {} not supported\n", accessor.componentType);
+        }
+
+        const auto& bufferView = model->gltfModel.bufferViews[accessor.bufferView];
+        const auto dataPointer = &model->gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
+
+        return std::vector<float>(reinterpret_cast<float*>(dataPointer), reinterpret_cast<float*>(dataPointer) + accessor.count);
+    }
+
     void ParseModel(const std::unique_ptr<Model>& model) noexcept
     {
+        for (const auto& animation : model->gltfModel.animations)
+        {
+            auto tempAnimation = std::make_unique<Animation>();
+
+            for (const auto& sampler : animation.samplers)
+            {
+                auto tempSampler = std::make_unique<AnimationSampler>();
+                if (sampler.input >= 0)
+                {
+                    const auto& accessor = model->gltfModel.accessors[sampler.input];
+                    tempSampler->input   = ParseAnimationBuffer(model, accessor);
+                }
+                if (sampler.output >= 0)
+                {
+                    const auto& accessor = model->gltfModel.accessors[sampler.output];
+                    tempSampler->output  = ParseAnimationBuffer(model, accessor);
+                }
+
+                tempAnimation->samplers.emplace_back(std::move(tempSampler));
+            }
+
+            for (const auto& channel : animation.channels)
+            {
+                auto tempChannel     = std::make_unique<AnimationChannel>();
+                tempChannel->node    = channel.target_node;
+                tempChannel->sampler = channel.sampler;
+
+                tempAnimation->channels.emplace_back(std::move(tempChannel));
+            }
+
+            model->animations.emplace_back(std::move(tempAnimation));
+        }
+
         uint32_t imguiScene {0};
         for (const auto& scene : model->gltfModel.scenes)
         {
@@ -2909,24 +3011,22 @@ private:
 
             for (const auto& nodeIndex : scene.nodes)
             {
-                ParseNode(model, tempScene->nodes, model->gltfModel.nodes[nodeIndex]);
+                ParseNode(model, tempScene->nodes, nodeIndex);
             }
 
             model->scenes.emplace_back(std::move(tempScene));
         }
     }
 
-    void ParseNode(
-        const std::unique_ptr<Model>& model,
-        std::vector<std::unique_ptr<Node>>& nodes,
-        const tinygltf::Node& node,
-        const glm::mat4& matrix = glm::mat4(1.f)
-    )
+    void
+    ParseNode(const std::unique_ptr<Model>& model, std::vector<std::unique_ptr<Node>>& nodes, int nodeIndex, const glm::mat4& matrix = glm::mat4(1.f))
     {
+        const tinygltf::Node& node = model->gltfModel.nodes[nodeIndex];
         model->attributes.infomation += std::format("  Node {} :\n", node.name);
 
-        auto tempNode  = std::make_unique<Node>();
-        tempNode->name = node.name;
+        auto tempNode   = std::make_unique<Node>();
+        tempNode->name  = node.name;
+        tempNode->index = nodeIndex;
 
         glm::mat4 modelMatrix = matrix;
         if (node.matrix.size() == 16)
@@ -2969,7 +3069,7 @@ private:
 
         for (auto child : node.children)
         {
-            ParseNode(model, tempNode->children, model->gltfModel.nodes[child], modelMatrix);
+            ParseNode(model, tempNode->children, child, modelMatrix);
         }
 
         nodes.emplace_back(std::move(tempNode));
@@ -3099,6 +3199,36 @@ private:
         {
             model->attributes.infomation += std::format("      Primitive {} :\n", imguiPrimitive++);
             auto tempPrimitive = std::make_unique<Primitive>();
+
+            if (!gltfMesh.weights.empty())
+            {
+                std::array<float, 2> weights {static_cast<float>(gltfMesh.weights[0]), static_cast<float>(gltfMesh.weights[1])};
+                tempPrimitive->animationWeight =
+                    CreateUniforms(weights, m_context->descriptorSetLayouts.at("uniform_animation_morph")->descriptorSetLayout);
+            }
+
+            for (const auto& target : primitive.targets)
+            {
+                if (target.contains("POSITION"))
+                {
+                    const auto& accessor = model->gltfModel.accessors[target.at("POSITION")];
+                    const auto& buffer   = ParseBuffer(model, accessor);
+
+                    model->attributes.infomation += std::format("        Target: Position : {}\n", std::get<2>(buffer));
+
+                    if (!model->buffers.contains(std::get<3>(buffer)))
+                    {
+                        model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                    }
+
+                    if (!tempPrimitive->morphPosition)
+                    {
+                        tempPrimitive->morphPosition = std::vector<std::string> {};
+                    }
+
+                    tempPrimitive->morphPosition.value().emplace_back(std::get<3>(buffer));
+                }
+            }
 
             if (primitive.attributes.contains("POSITION"))
             {
@@ -3328,11 +3458,29 @@ private:
                         {
                             case ColoringMode::DirectRGB:
                             {
-                                pipeline       = m_context->pipelines.at(PipelineType::DC_NL)->pipeline;
-                                pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL)->pipelineLayout;
+                                if (!model->animations.empty() && model->attributes.animation)
+                                {
+                                    pipeline       = m_context->pipelines.at(PipelineType::DC_NL_AW2)->pipeline;
+                                    pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL_AW2)->pipelineLayout;
 
-                                auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
-                                descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+                                    descriptorSets.emplace_back(primitive->animationWeight.value()->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                    auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
+                                    descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                    vertexBuffers.emplace_back(model->buffers.at(primitive->morphPosition.value()[0])->buffer);
+                                    vertexBuffers.emplace_back(model->buffers.at(primitive->morphPosition.value()[1])->buffer);
+                                    offsets.emplace_back(0);
+                                    offsets.emplace_back(0);
+                                }
+                                else
+                                {
+                                    pipeline       = m_context->pipelines.at(PipelineType::DC_NL)->pipeline;
+                                    pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL)->pipelineLayout;
+
+                                    auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
+                                    descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+                                }
                             }
                             break;
                             case ColoringMode::TextureMapping:
@@ -3438,8 +3586,64 @@ private:
         }
     }
 
+    void UpdateNodeAnimation(const std::unique_ptr<Model>& model, const std::unique_ptr<Node>& node) const noexcept
+    {
+        for (const auto& animation : model->animations)
+        {
+            for (const auto& channel : animation->channels)
+            {
+                if (channel->node == node->index)
+                {
+                    const auto& input  = animation->samplers[channel->sampler]->input;
+                    const auto& output = animation->samplers[channel->sampler]->output;
+
+                    auto time = glfwGetTime() - model->attributes.animationStartTime;
+                    auto t    = std::fmod(time, input.back() - input.front());
+
+                    if (node->mesh)
+                    {
+                        float weights[2] {};
+                        for (auto i = 0u; i + 1 < input.size(); ++i)
+                        {
+                            if (input[i] <= t)
+                            {
+                                weights[0] = static_cast<float>(
+                                    output[i * 2] + (t - input[i]) / (input[i + 1] - input[i]) * (output[(i + 1) * 2] - output[i * 2])
+                                );
+                                weights[1] = static_cast<float>(
+                                    output[i * 2 + 1] + (t - input[i]) / (input[i + 1] - input[i]) * (output[(i + 1) * 2 + 1] - output[i * 2 + 1])
+                                );
+                            }
+                        }
+
+                        for (const auto& primitive : node->mesh->primitives)
+                        {
+                            primitive->animationWeight.value()->UpdateUniform(m_currentFrame, weights, sizeof(float) * 2);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const auto& child : node->children)
+        {
+            UpdateNodeAnimation(model, child);
+        }
+    }
+
     void DrawGLTFModel(const std::unique_ptr<Model>& model, const VkCommandBuffer commandBuffer) const noexcept
     {
+        if (!model->animations.empty() && model->attributes.animation)
+        {
+            for (const auto& scene : model->scenes)
+            {
+                for (const auto& node : scene->nodes)
+                {
+                    UpdateNodeAnimation(model, node);
+                }
+            }
+        }
+
         for (const auto& scene : model->scenes)
         {
             for (const auto& node : scene->nodes)
@@ -3766,6 +3970,11 @@ private:
             if (ImGui::TreeNode(path.filename().string().c_str()))
             {
                 ImGui::Checkbox("Display", &model->attributes.visibility);
+                if (ImGui::Checkbox("Animation", &model->attributes.animation))
+                {
+                    model->attributes.animationStartTime = glfwGetTime();
+                }
+
                 uint32_t sceneIndex {};
                 for (auto& scene : model->scenes)
                 {
@@ -4380,6 +4589,13 @@ private:
             PipelineType::TC_PL,
             CreateGraphicsPipeline(PipelineType::TC_PL, "../resources/shaders/01_06_tc_pl_vert.spv", "../resources/shaders/01_06_tc_pl_frag.spv")
         );
+
+        m_context->pipelines.try_emplace(
+            PipelineType::DC_NL_AW2,
+            CreateGraphicsPipeline(
+                PipelineType::DC_NL_AW2, "../resources/shaders/01_06_dc_nl_aw2_vert.spv", "../resources/shaders/01_06_dc_nl_aw2_frag.spv"
+            )
+        );
     }
 
     /// @brief 创建图形管线
@@ -4555,6 +4771,12 @@ private:
 
                 descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_roughnessFactor_metallicFactor")->descriptorSetLayout);
                 descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_sampler")->descriptorSetLayout);
+            }
+            break;
+            case PipelineType::DC_NL_AW2:
+            {
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_animation_morph")->descriptorSetLayout);
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
             }
             break;
             default:
@@ -5173,6 +5395,7 @@ private:
     /// @brief 创建着色器使用的每一个描述符绑定信息
     void CreateDescriptorSetLayouts()
     {
+        // 只有 stageFlags 不同，其他都相同，是否可以考虑只保留 vertex fragment 两种描述符绑定信息
         {
             auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
 
@@ -5194,6 +5417,29 @@ private:
             }
 
             m_context->descriptorSetLayouts.try_emplace("uniform_model", std::move(descriptorSetLayout));
+        }
+
+        {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
+            VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+            uboLayoutBinding.binding                      = 0;
+            uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            uboLayoutBinding.descriptorCount              = 1;
+            uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT;
+            uboLayoutBinding.pImmutableSamplers           = nullptr;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+            layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layoutInfo.bindingCount                    = 1;
+            layoutInfo.pBindings                       = &uboLayoutBinding;
+
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
+            {
+                throw std::runtime_error("failed to create descriptor set layout");
+            }
+
+            m_context->descriptorSetLayouts.try_emplace("uniform_animation_morph", std::move(descriptorSetLayout));
         }
 
         {
