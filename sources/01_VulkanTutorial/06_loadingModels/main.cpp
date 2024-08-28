@@ -2410,6 +2410,13 @@ enum class ColoringMode : int
     TextureMapping, ///< 纹理映射
 };
 
+enum class AnimationMode : uint8_t
+{
+    None,  ///< 无动画
+    Morph, ///< 变形
+    Skin,  ///< 蒙皮
+};
+
 struct Primitive
 {
     bool vertexColoring()
@@ -2480,6 +2487,11 @@ struct Primitive
     std::optional<std::string> normal {};
     std::optional<std::string> color {};
 
+    AnimationMode animationMode {AnimationMode::None};
+
+    std::optional<std::string> joints {};
+    std::optional<std::string> weights {};
+
     std::optional<std::vector<std::string>> morphPosition {};
     std::optional<std::unique_ptr<Uniform>> animationWeight {};
 };
@@ -2496,13 +2508,39 @@ struct Camera
     std::string name {};
 };
 
+struct Skin
+{
+    std::unique_ptr<Uniform> matrix {};
+    std::vector<glm::mat4> inverseBindMatrices {};
+    std::vector<int> joints {}; // 元素是 gltf 中 Node 的索引，骨骼动画的关节
+};
+
 struct Node
 {
     std::string name {};
     int index {};
 
-    glm::mat4 modelMatrix {};
+    Node* parent {};
+
+    std::map<std::string, glm::mat4> matrices {};
+
+    glm::mat4 GetLocalMatrix() const
+    {
+        if (matrices.contains("matrix"))
+        {
+            return matrices.at("matrix");
+        }
+
+        auto translation = matrices.contains("translation") ? matrices.at("translation") : glm::mat4(1.f);
+        auto rotation    = matrices.contains("rotation") ? matrices.at("rotation") : glm::mat4(1.f);
+        auto scale       = matrices.contains("scale") ? matrices.at("scale") : glm::mat4(1.f);
+
+        return translation * rotation * scale;
+    }
+
     std::unique_ptr<Uniform> modelUniform {};
+
+    std::unique_ptr<Skin> skin {};
 
     std::unique_ptr<Mesh> mesh {};
     std::unique_ptr<Camera> camera {};
@@ -2524,6 +2562,7 @@ enum class PipelineType : uint8_t
     DC_PL,
     TC_PL,     // texture color + pbr light
     DC_NL_AW2, // direct color + none light + animation weights[2]
+    DC_NL_AS2, // direct color + none light + animation skins[2]
 };
 
 struct DescriptorSetLayout
@@ -2550,8 +2589,11 @@ struct ModelAttributes
 
 struct AnimationChannel
 {
-    int node {};
     int sampler {};
+
+    // TODO: 这两个成员应该组织为结构体
+    int node {};
+    std::string path {};
 };
 
 struct AnimationSampler
@@ -2571,6 +2613,9 @@ struct Model
     ModelAttributes attributes {};
     tinygltf::Model gltfModel {};
 
+    // TODO: 应该将 gltf 模型的所有 Node 都保存在此处，scene 中只保存索引
+    // Model 应该当和 gltfModel 的成员保持一致，这样方便访问
+    // 定义 LoadNode LoadImage LoadTexture LoadSampler 等函数
     std::vector<std::unique_ptr<Scene>> scenes {};
 
     std::vector<std::unique_ptr<Animation>> animations {};
@@ -2603,6 +2648,8 @@ struct Vertex
     using position_type = glm::vec3;
     using normal_type   = glm::vec3;
     using texCoord_type = glm::vec2;
+    using weight_type   = glm::vec4;
+    using joint_type    = glm::vec4;
 
     static std::vector<VkVertexInputBindingDescription> GetBindingDescriptions(const PipelineType pipelineType) noexcept
     {
@@ -2635,6 +2682,12 @@ struct Vertex
             {
                 bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(position_type)), VK_VERTEX_INPUT_RATE_VERTEX);
                 bindingDescriptions.emplace_back(2, static_cast<uint32_t>(sizeof(position_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+            }
+            break;
+            case PipelineType::DC_NL_AS2:
+            {
+                bindingDescriptions.emplace_back(1, static_cast<uint32_t>(sizeof(weight_type)), VK_VERTEX_INPUT_RATE_VERTEX);
+                bindingDescriptions.emplace_back(2, static_cast<uint32_t>(sizeof(joint_type)), VK_VERTEX_INPUT_RATE_VERTEX);
             }
             break;
             default:
@@ -2675,6 +2728,12 @@ struct Vertex
             {
                 attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0);
                 attributeDescriptions.emplace_back(2, 2, VK_FORMAT_R32G32B32_SFLOAT, 0);
+            }
+            break;
+            case PipelineType::DC_NL_AS2:
+            {
+                attributeDescriptions.emplace_back(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0);
+                attributeDescriptions.emplace_back(2, 2, VK_FORMAT_R32G32B32A32_SFLOAT, 0);
             }
             break;
             default:
@@ -2781,6 +2840,11 @@ private:
                 vkFreeMemory(m_device, uniform->memorys[i], nullptr);
             }
         };
+
+        if (node->skin && node->skin->matrix)
+        {
+            destroyUniform(node->skin->matrix);
+        }
 
         if (node->mesh)
         {
@@ -2903,6 +2967,7 @@ private:
         m_models.try_emplace("../resources/models/sphere.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/WaterBottle/WaterBottle.gltf", std::make_unique<Model>());
         m_models.try_emplace("../resources/models/FlightHelmet/FlightHelmet.gltf", std::make_unique<Model>());
+        m_models.try_emplace("../resources/models/skin.gltf", std::make_unique<Model>());
 
         for (const auto& [name, model] : m_models)
         {
@@ -2950,20 +3015,29 @@ private:
 
     std::vector<float> ParseAnimationBuffer(const std::unique_ptr<Model>& model, const tinygltf::Accessor& accessor)
     {
-        if (accessor.type != TINYGLTF_TYPE_SCALAR)
+        size_t size {1};
+        switch (accessor.type)
         {
-            std::cout << std::format("type {} not supported\n", accessor.type);
+            case TINYGLTF_TYPE_VEC4:
+                size = 4;
+                break;
+            case TINYGLTF_TYPE_SCALAR:
+                size = 1;
+                break;
+            default:
+                std::cout << std::format("ParseAnimationBuffer: type {} not supported\n", accessor.type);
+                break;
         }
 
         if (accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT)
         {
-            std::cout << std::format("componentType {} not supported\n", accessor.componentType);
+            std::cout << std::format("ParseAnimationBuffer: componentType {} not supported\n", accessor.componentType);
         }
 
         const auto& bufferView = model->gltfModel.bufferViews[accessor.bufferView];
         const auto dataPointer = &model->gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
 
-        return std::vector<float>(reinterpret_cast<float*>(dataPointer), reinterpret_cast<float*>(dataPointer) + accessor.count);
+        return std::vector<float>(reinterpret_cast<float*>(dataPointer), reinterpret_cast<float*>(dataPointer) + accessor.count * size);
     }
 
     void ParseModel(const std::unique_ptr<Model>& model) noexcept
@@ -2992,8 +3066,9 @@ private:
             for (const auto& channel : animation.channels)
             {
                 auto tempChannel     = std::make_unique<AnimationChannel>();
-                tempChannel->node    = channel.target_node;
                 tempChannel->sampler = channel.sampler;
+                tempChannel->node    = channel.target_node;
+                tempChannel->path    = channel.target_path;
 
                 tempAnimation->channels.emplace_back(std::move(tempChannel));
             }
@@ -3018,42 +3093,65 @@ private:
         }
     }
 
-    void
-    ParseNode(const std::unique_ptr<Model>& model, std::vector<std::unique_ptr<Node>>& nodes, int nodeIndex, const glm::mat4& matrix = glm::mat4(1.f))
+    void ParseNode(const std::unique_ptr<Model>& model, std::vector<std::unique_ptr<Node>>& nodes, int nodeIndex, Node* parent = nullptr)
     {
         const tinygltf::Node& node = model->gltfModel.nodes[nodeIndex];
         model->attributes.infomation += std::format("  Node {} :\n", node.name);
 
-        auto tempNode   = std::make_unique<Node>();
-        tempNode->name  = node.name;
-        tempNode->index = nodeIndex;
+        auto tempNode    = std::make_unique<Node>();
+        tempNode->name   = node.name;
+        tempNode->index  = nodeIndex;
+        tempNode->parent = parent;
 
-        glm::mat4 modelMatrix = matrix;
         if (node.matrix.size() == 16)
         {
-            modelMatrix = glm::make_mat4(node.matrix.data());
+            tempNode->matrices["matrix"] = glm::make_mat4(node.matrix.data());
         }
         else
         {
             if (node.translation.size() == 3)
             {
-                modelMatrix = glm::translate(modelMatrix, glm::vec3(glm::make_vec3(node.translation.data())));
+                tempNode->matrices["translation"] = glm::translate(glm::mat4(1.f), glm::vec3(glm::make_vec3(node.translation.data())));
             }
             if (node.rotation.size() == 4)
             {
-                glm::quat quat = glm::make_quat(node.rotation.data());
-                modelMatrix *= glm::mat4(quat);
+                tempNode->matrices["rotation"] = glm::toMat4(glm::make_quat(node.rotation.data()));
             }
             if (node.scale.size() == 3)
             {
-                modelMatrix = glm::scale(modelMatrix, glm::vec3(glm::make_vec3(node.scale.data())));
+                tempNode->matrices["scale"] = glm::scale(glm::mat4(1.f), glm::vec3(glm::make_vec3(node.scale.data())));
             }
+        }
+
+        if (node.skin >= 0)
+        {
+            auto tempSkin = std::make_unique<Skin>();
+
+            const tinygltf::Skin& skin = model->gltfModel.skins[node.skin];
+
+            if (skin.inverseBindMatrices >= 0)
+            {
+                const auto& accessor = model->gltfModel.accessors[skin.inverseBindMatrices];
+                const auto& buffer   = ParseBuffer(model, accessor);
+
+                for (size_t i = 0; i + 15 < std::get<4>(buffer).size(); i += 16)
+                {
+                    tempSkin->inverseBindMatrices.emplace_back(glm::make_mat4(std::get<4>(buffer).data() + i));
+                }
+
+                tempSkin->matrix = CreateStorageBuffer(
+                    std::get<0>(buffer), std::get<1>(buffer), m_context->descriptorSetLayouts.at("uniform_animation_skin")->descriptorSetLayout
+                );
+            }
+
+            tempSkin->joints = skin.joints;
+            tempNode->skin   = std::move(tempSkin);
         }
 
         if (node.mesh >= 0)
         {
-            tempNode->modelUniform = CreateUniforms(modelMatrix, m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
-            tempNode->modelMatrix  = std::move(modelMatrix);
+            tempNode->modelUniform =
+                CreateUniforms(GetNodeMatrix(tempNode.get()), m_context->descriptorSetLayouts.at("uniform_model")->descriptorSetLayout);
 
             tempNode->mesh = std::make_unique<Mesh>();
             ParseMesh(model, tempNode->mesh, model->gltfModel.meshes[node.mesh]);
@@ -3069,7 +3167,7 @@ private:
 
         for (auto child : node.children)
         {
-            ParseNode(model, tempNode->children, child, modelMatrix);
+            ParseNode(model, tempNode->children, child, tempNode.get());
         }
 
         nodes.emplace_back(std::move(tempNode));
@@ -3077,43 +3175,84 @@ private:
 
     /// @brief
     /// @param accessor
-    /// @return dataPointer dataSize elementCount bufferInfo
-    std::tuple<const void*, size_t, uint32_t, std::string> ParseBuffer(const std::unique_ptr<Model>& model, const tinygltf::Accessor& accessor)
+    /// @return dataPointer dataSize elementCount bufferInfo rawData->floatData
+    std::tuple<const void*, size_t, uint32_t, std::string, std::vector<float>>
+    ParseBuffer(const std::unique_ptr<Model>& model, const tinygltf::Accessor& accessor)
     {
         const auto& bufferView  = model->gltfModel.bufferViews[accessor.bufferView];
         const auto dataPointer  = &model->gltfModel.buffers[bufferView.buffer].data[accessor.byteOffset + bufferView.byteOffset];
         const auto elementCount = accessor.count;
 
         auto dataSize = elementCount;
-
+        auto count    = elementCount;
         switch (accessor.type)
         {
             case TINYGLTF_TYPE_VEC2:
                 dataSize *= 2;
+                count *= 2;
                 break;
             case TINYGLTF_TYPE_VEC3:
                 dataSize *= 3;
+                count *= 3;
+                break;
+            case TINYGLTF_TYPE_VEC4:
+                dataSize *= 4;
+                count *= 4;
+                break;
+            case TINYGLTF_TYPE_MAT4:
+                dataSize *= 16;
+                count *= 16;
                 break;
             default:
-                std::cout << std::format("type {} not supported\n", accessor.type);
+                std::cout << std::format("ParseBuffer: type {} not supported\n", accessor.type);
                 break;
         }
 
+        std::vector<float> fData {};
+        fData.reserve(count);
         switch (accessor.componentType)
         {
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+            {
+                dataSize *= sizeof(unsigned short);
+
+                auto tempPtr = reinterpret_cast<unsigned short*>(dataPointer);
+                for (size_t i = 0; i < count; ++i)
+                {
+                    fData.emplace_back(static_cast<float>(*tempPtr++));
+                }
+            }
+            break;
             case TINYGLTF_COMPONENT_TYPE_FLOAT:
+            {
                 dataSize *= sizeof(float);
-                break;
+
+                auto tempPtr = reinterpret_cast<float*>(dataPointer);
+                for (size_t i = 0; i < count; ++i)
+                {
+                    fData.emplace_back(*tempPtr++);
+                }
+            }
+            break;
             case TINYGLTF_COMPONENT_TYPE_DOUBLE:
+            {
                 dataSize *= sizeof(double);
-                break;
+
+                auto tempPtr = reinterpret_cast<double*>(dataPointer);
+                for (size_t i = 0; i < count; ++i)
+                {
+                    fData.emplace_back(static_cast<float>(*tempPtr++));
+                }
+            }
+            break;
             default:
+                std::cout << std::format("ParseBuffer: componentType {} not supported\n", accessor.componentType);
                 break;
         }
 
         auto bufferInfo = "ptr: " + std::to_string(reinterpret_cast<std::uintptr_t>(dataPointer)) + "\tsize: " + std::to_string(dataSize);
 
-        return std::make_tuple(dataPointer, dataSize, static_cast<uint32_t>(elementCount), bufferInfo);
+        return std::make_tuple(dataPointer, count * sizeof(float), static_cast<uint32_t>(elementCount), bufferInfo, fData);
     }
 
     std::string ParseImage(const std::unique_ptr<Model>& model, const tinygltf::Image& image)
@@ -3141,7 +3280,7 @@ private:
                             format = VK_FORMAT_R8G8B8_UNORM;
                             break;
                         default:
-                            throw std::runtime_error(std::format("{} is not supported", image.pixel_type));
+                            throw std::runtime_error(std::format("ParseImage: pixel_type {} is not supported", image.pixel_type));
                             break;
                     }
                 }
@@ -3160,13 +3299,13 @@ private:
                             format = VK_FORMAT_R8G8B8A8_UNORM;
                             break;
                         default:
-                            throw std::runtime_error(std::format("pixel type {} is not supported", image.pixel_type));
+                            throw std::runtime_error(std::format("ParseImage: pixel type {} is not supported", image.pixel_type));
                             break;
                     }
                 }
                 break;
                 default:
-                    throw std::runtime_error(std::format("component {} is not supported", image.component));
+                    throw std::runtime_error(std::format("ParseImage: component {} is not supported", image.component));
                     break;
             }
 
@@ -3226,6 +3365,7 @@ private:
                         tempPrimitive->morphPosition = std::vector<std::string> {};
                     }
 
+                    tempPrimitive->animationMode = AnimationMode::Morph;
                     tempPrimitive->morphPosition.value().emplace_back(std::get<3>(buffer));
                 }
             }
@@ -3243,6 +3383,40 @@ private:
                 }
 
                 tempPrimitive->position = std::get<3>(buffer);
+            }
+
+            if (primitive.attributes.contains("JOINTS_0"))
+            {
+                const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("JOINTS_0")];
+                const auto& buffer   = ParseBuffer(model, accessor);
+
+                model->attributes.infomation += std::format("        JOINTS_0 : {}\n", std::get<2>(buffer));
+
+                if (!model->buffers.contains(std::get<3>(buffer)))
+                {
+                    if (!std::get<4>(buffer).empty())
+                    {
+                        model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<4>(buffer).data()));
+                    }
+                }
+
+                tempPrimitive->animationMode = AnimationMode::Skin;
+                tempPrimitive->joints        = std::get<3>(buffer);
+            }
+
+            if (primitive.attributes.contains("WEIGHTS_0"))
+            {
+                const auto& accessor = model->gltfModel.accessors[primitive.attributes.at("WEIGHTS_0")];
+                const auto& buffer   = ParseBuffer(model, accessor);
+
+                model->attributes.infomation += std::format("        WEIGHTS_0 : {}\n", std::get<2>(buffer));
+
+                if (!model->buffers.contains(std::get<3>(buffer)))
+                {
+                    model->buffers.try_emplace(std::get<3>(buffer), CreateVertexBuffer(std::get<1>(buffer), std::get<0>(buffer)));
+                }
+
+                tempPrimitive->weights = std::get<3>(buffer);
             }
 
             if (primitive.attributes.contains("NORMAL"))
@@ -3425,7 +3599,6 @@ private:
             }
             else // 如果没有材质，则创建一个默认材质
             {
-
                 tempPrimitive->material->name = "default material";
 
                 std::array<float, 4> color {0.f, 1.f, 0.f, 1.f};
@@ -3458,7 +3631,7 @@ private:
                         {
                             case ColoringMode::DirectRGB:
                             {
-                                if (!model->animations.empty() && model->attributes.animation)
+                                if (AnimationMode::Morph == primitive->animationMode && model->attributes.animation)
                                 {
                                     pipeline       = m_context->pipelines.at(PipelineType::DC_NL_AW2)->pipeline;
                                     pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL_AW2)->pipelineLayout;
@@ -3470,6 +3643,21 @@ private:
 
                                     vertexBuffers.emplace_back(model->buffers.at(primitive->morphPosition.value()[0])->buffer);
                                     vertexBuffers.emplace_back(model->buffers.at(primitive->morphPosition.value()[1])->buffer);
+                                    offsets.emplace_back(0);
+                                    offsets.emplace_back(0);
+                                }
+                                else if (AnimationMode::Skin == primitive->animationMode && model->attributes.animation)
+                                {
+                                    pipeline       = m_context->pipelines.at(PipelineType::DC_NL_AS2)->pipeline;
+                                    pipelineLayout = m_context->pipelines.at(PipelineType::DC_NL_AS2)->pipelineLayout;
+
+                                    descriptorSets.emplace_back(node->skin->matrix->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                    auto& baseColor = primitive->material->pbrMetallicRoughness->baseColorFactor.value();
+                                    descriptorSets.emplace_back(baseColor->descriptorSets->descriptorSets[m_currentFrame]);
+
+                                    vertexBuffers.emplace_back(model->buffers.at(primitive->weights.value())->buffer);
+                                    vertexBuffers.emplace_back(model->buffers.at(primitive->joints.value())->buffer);
                                     offsets.emplace_back(0);
                                     offsets.emplace_back(0);
                                 }
@@ -3586,40 +3774,125 @@ private:
         }
     }
 
+    glm::mat4 GetNodeMatrix(Node* node) const
+    {
+        auto matrix = node->GetLocalMatrix();
+        auto parent = node->parent;
+        while (parent)
+        {
+            matrix = GetNodeMatrix(parent) * matrix;
+            parent = parent->parent;
+        }
+        return matrix;
+    }
+
+    Node* FindNodeForIndex(int index, Node* node) const
+    {
+        if (node->index == index)
+        {
+            return node;
+        }
+
+        for (const auto& child : node->children)
+        {
+            return FindNodeForIndex(index, child.get());
+        }
+
+        return nullptr;
+    }
+
+    void UpdateNodeJoint(const std::unique_ptr<Scene>& scene, const std::unique_ptr<Node>& node) const
+    {
+        if (node->skin)
+        {
+            auto& joints = node->skin->joints;
+            std::vector<glm::mat4> jointMatrices(joints.size());
+            auto inverseTransform = glm::inverse(GetNodeMatrix(node.get()));
+
+            for (size_t i = 0; i < joints.size(); ++i)
+            {
+                auto tempNode    = FindNodeForIndex(joints[i], node.get());
+                jointMatrices[i] = GetNodeMatrix(tempNode) * node->skin->inverseBindMatrices[(i + 1) % 2];
+                jointMatrices[i] = inverseTransform * jointMatrices[i];
+            }
+
+            node->skin->matrix->UpdateUniform(m_currentFrame, jointMatrices.data(), sizeof(glm::mat4) * jointMatrices.size());
+        }
+    }
+
     void UpdateNodeAnimation(const std::unique_ptr<Model>& model, const std::unique_ptr<Node>& node) const noexcept
     {
         for (const auto& animation : model->animations)
         {
             for (const auto& channel : animation->channels)
             {
-                if (channel->node == node->index)
+                auto tempNode = FindNodeForIndex(channel->node, node.get());
+
+                const auto& input  = animation->samplers[channel->sampler]->input;
+                const auto& output = animation->samplers[channel->sampler]->output;
+
+                auto time = glfwGetTime() - model->attributes.animationStartTime;
+                auto t    = static_cast<float>(std::fmod(time, input.back() - input.front()));
+
+                // 蒙皮
+                if (tempNode && channel->path == "rotation" && tempNode->matrices.contains("rotation"))
                 {
-                    const auto& input  = animation->samplers[channel->sampler]->input;
-                    const auto& output = animation->samplers[channel->sampler]->output;
-
-                    auto time = glfwGetTime() - model->attributes.animationStartTime;
-                    auto t    = std::fmod(time, input.back() - input.front());
-
-                    if (node->mesh)
+                    for (size_t i = 1; i < input.size(); ++i)
                     {
-                        float weights[2] {};
-                        for (auto i = 0u; i + 1 < input.size(); ++i)
+                        if (input[i] > t)
                         {
-                            if (input[i] <= t)
-                            {
-                                weights[0] = static_cast<float>(
-                                    output[i * 2] + (t - input[i]) / (input[i + 1] - input[i]) * (output[(i + 1) * 2] - output[i * 2])
-                                );
-                                weights[1] = static_cast<float>(
-                                    output[i * 2 + 1] + (t - input[i]) / (input[i + 1] - input[i]) * (output[(i + 1) * 2 + 1] - output[i * 2 + 1])
-                                );
-                            }
-                        }
+                            auto q1 = glm::make_quat(output.data() + (i - 1) * 4);
+                            auto q2 = glm::make_quat(output.data() + i * 4);
 
-                        for (const auto& primitive : node->mesh->primitives)
-                        {
-                            primitive->animationWeight.value()->UpdateUniform(m_currentFrame, weights, sizeof(float) * 2);
+                            auto a = (t - input[i - 1]) / (input[i] - input[i - 1]);
+
+                            tempNode->matrices["rotation"] = glm::toMat4(glm::normalize(glm::slerp(q1, q2, a)));
+                            break;
                         }
+                    }
+                }
+
+                if (tempNode && channel->path == "translation" && tempNode->matrices.contains("translation"))
+                {
+                    for (size_t i = 1; i < input.size(); ++i)
+                    {
+                        if (input[i] > t)
+                        {
+                            auto t1 = glm::make_vec3(output.data() + (i - 1) * 3);
+                            auto t2 = glm::make_vec3(output.data() + i * 3);
+
+                            auto a = (t - input[i - 1]) / (input[i] - input[i - 1]);
+
+                            auto translation = glm::mix(t1, t2, a);
+
+                            tempNode->matrices["translation"] = glm::translate(glm::mat4(1.f), translation);
+                            break;
+                        }
+                    }
+                }
+
+                // 变形
+                if (!node->skin && node->mesh)
+                {
+                    float weights[2] {};
+                    for (size_t i = 1; i < input.size(); ++i)
+                    {
+                        if (input[i] > t)
+                        {
+                            weights[0] = static_cast<float>(
+                                output[(i - 1) * 2] + (t - input[i - 1]) / (input[i] - input[i - 1]) * (output[i * 2] - output[(i - 1) * 2])
+                            );
+                            weights[1] = static_cast<float>(
+                                output[(i - 1) * 2 + 1]
+                                + (t - input[i - 1]) / (input[i] - input[i - 1]) * (output[i * 2 + 1] - output[(i - 1) * 2 + 1])
+                            );
+                            break;
+                        }
+                    }
+
+                    for (const auto& primitive : node->mesh->primitives)
+                    {
+                        primitive->animationWeight.value()->UpdateUniform(m_currentFrame, weights, sizeof(float) * 2);
                     }
                 }
             }
@@ -3639,7 +3912,9 @@ private:
             {
                 for (const auto& node : scene->nodes)
                 {
+                    // 先更新动画再更新蒙皮（动画会更新所有节点的变换数据，蒙皮需要根据这些数据构造 GLSL 中使用的数据）
                     UpdateNodeAnimation(model, node);
+                    UpdateNodeJoint(scene, node);
                 }
             }
         }
@@ -4596,6 +4871,13 @@ private:
                 PipelineType::DC_NL_AW2, "../resources/shaders/01_06_dc_nl_aw2_vert.spv", "../resources/shaders/01_06_dc_nl_aw2_frag.spv"
             )
         );
+
+        m_context->pipelines.try_emplace(
+            PipelineType::DC_NL_AS2,
+            CreateGraphicsPipeline(
+                PipelineType::DC_NL_AS2, "../resources/shaders/01_06_dc_nl_as2_vert.spv", "../resources/shaders/01_06_dc_nl_as2_frag.spv"
+            )
+        );
     }
 
     /// @brief 创建图形管线
@@ -4776,6 +5058,12 @@ private:
             case PipelineType::DC_NL_AW2:
             {
                 descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_animation_morph")->descriptorSetLayout);
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
+            }
+            break;
+            case PipelineType::DC_NL_AS2:
+            {
+                descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_animation_skin")->descriptorSetLayout);
                 descriptorSetLayouts.emplace_back(m_context->descriptorSetLayouts.at("uniform_color")->descriptorSetLayout);
             }
             break;
@@ -5447,6 +5735,29 @@ private:
 
             VkDescriptorSetLayoutBinding uboLayoutBinding = {};
             uboLayoutBinding.binding                      = 0;
+            uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            uboLayoutBinding.descriptorCount              = 1;
+            uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT;
+            uboLayoutBinding.pImmutableSamplers           = nullptr;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+            layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layoutInfo.bindingCount                    = 1;
+            layoutInfo.pBindings                       = &uboLayoutBinding;
+
+            if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &descriptorSetLayout->descriptorSetLayout))
+            {
+                throw std::runtime_error("failed to create descriptor set layout");
+            }
+
+            m_context->descriptorSetLayouts.try_emplace("uniform_animation_skin", std::move(descriptorSetLayout));
+        }
+
+        {
+            auto descriptorSetLayout = std::make_unique<DescriptorSetLayout>();
+
+            VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+            uboLayoutBinding.binding                      = 0;
             uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             uboLayoutBinding.descriptorCount              = 1;
             uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -5553,6 +5864,71 @@ private:
         }
     }
 
+    std::unique_ptr<Uniform> CreateStorageBuffer(const void* data, VkDeviceSize bufferSize, VkDescriptorSetLayout descriptorSetLayout)
+    {
+        auto uniform = std::make_unique<Uniform>();
+
+        uniform->buffers.resize(MAX_FRAMES_IN_FLIGHT);
+        uniform->memorys.resize(MAX_FRAMES_IN_FLIGHT);
+        uniform->mappeds.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            CreateBuffer(
+                bufferSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                uniform->buffers[i],
+                uniform->memorys[i]
+            );
+            vkMapMemory(m_device, uniform->memorys[i], 0, bufferSize, 0, &uniform->mappeds[i]);
+        }
+
+        //---------------------------------------------------------------------
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            std::memcpy(uniform->mappeds[i], data, bufferSize);
+        }
+
+        //---------------------------------------------------------------------
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+
+        VkDescriptorSetAllocateInfo allocInfo {};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = m_descriptorPool;
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.pSetLayouts        = layouts.data();
+
+        uniform->descriptorSets->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, uniform->descriptorSets->descriptorSets.data()))
+        {
+            throw std::runtime_error("failed to allocate descriptor sets");
+        }
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        {
+            VkDescriptorBufferInfo bufferInfo {};
+            bufferInfo.buffer = uniform->buffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range  = bufferSize;
+
+            VkWriteDescriptorSet descriptorWrite {};
+            descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet           = uniform->descriptorSets->descriptorSets[i];
+            descriptorWrite.dstBinding       = 0;
+            descriptorWrite.dstArrayElement  = 0;
+            descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            descriptorWrite.descriptorCount  = 1;
+            descriptorWrite.pBufferInfo      = &bufferInfo;
+            descriptorWrite.pImageInfo       = nullptr;
+            descriptorWrite.pTexelBufferView = nullptr;
+
+            vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+        }
+
+        return uniform;
+    }
+
     template <typename T>
     std::unique_ptr<Uniform> CreateUniforms(const T& data, VkDescriptorSetLayout descriptorSetLayout)
     {
@@ -5624,11 +6000,13 @@ private:
     /// @brief 创建描述符池，描述符集需要通过描述符池来创建
     void CreateDescriptorPool()
     {
-        std::array<VkDescriptorPoolSize, 2> poolSizes {};
+        std::array<VkDescriptorPoolSize, 3> poolSizes {};
         poolSizes[0].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 100;
         poolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 100;
+        poolSizes[2].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 100;
 
         VkDescriptorPoolCreateInfo poolInfo {};
         poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
