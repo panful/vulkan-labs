@@ -2295,7 +2295,6 @@ private:
         CreateUniformBuffers();
         CreateDescriptorPool();
         CreateDescriptorSets();
-        UpdateDescriptorSets();
         CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
@@ -2393,8 +2392,10 @@ private:
 
         if (ImGui::Combo("Texture", &m_currentTextureIndex, m_textureFileNames.data(), static_cast<int>(m_textureFileNames.size())))
         {
-            vkQueueWaitIdle(m_graphicsQueue);
-            UpdateDescriptorSets();
+            for (auto i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+            {
+                m_textureChanged[i] = true;
+            }
         }
 
         ImGui::End();
@@ -3432,6 +3433,15 @@ private:
             throw std::runtime_error("failed to acquire swap chain image");
         }
 
+        if (m_textureChanged[m_currentFrame])
+        {
+            // 更新描述符集时，必须保证描述符没有被使用
+            // 此处也可以修改其他资源，例如 Uniform 等等
+            // 关键是要保证该资源当前没有被GPU使用，可以使用一个bool值保存是否需要更新，在栅栏等待成功后再更新实际的数据（CPU到GPU）
+            UpdateDescriptorSets();
+            m_textureChanged[m_currentFrame] = false;
+        }
+
         // 每一帧都更新uniform
         UpdateUniformBuffer(static_cast<uint32_t>(m_currentFrame));
 
@@ -3882,45 +3892,43 @@ private:
 
     void UpdateDescriptorSets()
     {
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-        {
-            VkDescriptorBufferInfo bufferInfo {};
-            bufferInfo.buffer = m_uniformBuffers.at(i);
-            bufferInfo.offset = 0;
-            bufferInfo.range  = sizeof(UniformBufferObject);
 
-            VkDescriptorImageInfo imageInfo {};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView   = m_textures.at(m_textureFileNames[m_currentTextureIndex])->imageView;
-            imageInfo.sampler     = m_textureSampler;
+        VkDescriptorBufferInfo bufferInfo {};
+        bufferInfo.buffer = m_uniformBuffers[m_currentFrame];
+        bufferInfo.offset = 0;
+        bufferInfo.range  = sizeof(UniformBufferObject);
 
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites {};
+        VkDescriptorImageInfo imageInfo {};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView   = m_textures.at(m_textureFileNames[m_currentTextureIndex])->imageView;
+        imageInfo.sampler     = m_textureSampler;
 
-            // mvp变换矩阵
-            descriptorWrites.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites.at(0).dstSet           = m_descriptorSets.at(i); // 指定要更新的描述符集对象
-            descriptorWrites.at(0).dstBinding       = 9;                      // 指定缓冲绑定
-            descriptorWrites.at(0).dstArrayElement  = 0;           // 描述符数组的第一个元素的索引（没有数组就使用0）
-            descriptorWrites.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrites.at(0).descriptorCount  = 1;
-            descriptorWrites.at(0).pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
-            descriptorWrites.at(0).pImageInfo       = nullptr;     // 指定描述符引用的图像数据
-            descriptorWrites.at(0).pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
+        std::array<VkWriteDescriptorSet, 2> descriptorWrites {};
 
-            // 纹理采样器
-            descriptorWrites.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites.at(1).dstSet           = m_descriptorSets.at(i);
-            descriptorWrites.at(1).dstBinding       = 6;
-            descriptorWrites.at(1).dstArrayElement  = 0;
-            descriptorWrites.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrites.at(1).descriptorCount  = 1;
-            descriptorWrites.at(1).pBufferInfo      = nullptr;
-            descriptorWrites.at(1).pImageInfo       = &imageInfo;
-            descriptorWrites.at(1).pTexelBufferView = nullptr;
+        // mvp变换矩阵
+        descriptorWrites.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites.at(0).dstSet           = m_descriptorSets[m_currentFrame]; // 指定要更新的描述符集对象
+        descriptorWrites.at(0).dstBinding       = 9;                                // 指定缓冲绑定
+        descriptorWrites.at(0).dstArrayElement  = 0;           // 描述符数组的第一个元素的索引（没有数组就使用0）
+        descriptorWrites.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrites.at(0).descriptorCount  = 1;
+        descriptorWrites.at(0).pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
+        descriptorWrites.at(0).pImageInfo       = nullptr;     // 指定描述符引用的图像数据
+        descriptorWrites.at(0).pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
 
-            // 更新描述符的配置
-            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-        }
+        // 纹理采样器
+        descriptorWrites.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites.at(1).dstSet           = m_descriptorSets[m_currentFrame];
+        descriptorWrites.at(1).dstBinding       = 6;
+        descriptorWrites.at(1).dstArrayElement  = 0;
+        descriptorWrites.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrites.at(1).descriptorCount  = 1;
+        descriptorWrites.at(1).pBufferInfo      = nullptr;
+        descriptorWrites.at(1).pImageInfo       = &imageInfo;
+        descriptorWrites.at(1).pTexelBufferView = nullptr;
+
+        // 更新描述符的配置
+        vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
 
     /// @brief 创建描述符集
@@ -4337,6 +4345,8 @@ private:
     std::vector<const char*> m_textureFileNames {"alpha.png", "barce.jpg", "nightsky.png"};
     std::map<const char*, std::unique_ptr<Texture>> m_textures {};
     int m_currentTextureIndex {0};
+
+    std::array<bool, MAX_FRAMES_IN_FLIGHT> m_textureChanged {true, true};
 };
 
 int main()
