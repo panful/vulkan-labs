@@ -1,6 +1,6 @@
 /**
  * 1. 纹理的基础使用
- * 2.
+ * 2. ImGui 动态修改纹理的图片
  */
 
 #define TEST2
@@ -2132,6 +2132,7 @@ int main()
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -2155,6 +2156,13 @@ const bool g_enableValidationLayers = false;
 #else
 const bool g_enableValidationLayers = true;
 #endif // NDEBUG
+
+struct Texture
+{
+    VkImage image {nullptr};
+    VkImageView imageView {nullptr};
+    VkDeviceMemory imageMemory {nullptr};
+};
 
 struct Vertex
 {
@@ -2280,18 +2288,26 @@ private:
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
-        CreateTextureImage();
-        CreateTextureImageView();
+        LoadTextures();
         CreateTextureSampler();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
         CreateDescriptorPool();
         CreateDescriptorSets();
+        UpdateDescriptorSets();
         CreateImGuiDescriptorPool();
         CreateCommandBuffers();
         CreateSyncObjects();
         InitImGui();
+    }
+
+    void LoadTextures()
+    {
+        for (auto name : m_textureFileNames)
+        {
+            m_textures.try_emplace(name, CreateTextureImage(std::string("../resources/textures/") + name));
+        }
     }
 
     void MainLoop()
@@ -2317,9 +2333,13 @@ private:
         CleanupSwapChain();
 
         vkDestroySampler(m_device, m_textureSampler, nullptr);
-        vkDestroyImageView(m_device, m_textureImageView, nullptr);
-        vkDestroyImage(m_device, m_textureImage, nullptr);
-        vkFreeMemory(m_device, m_textureImageMemory, nullptr);
+
+        for (const auto& [_, texture] : m_textures)
+        {
+            vkDestroyImage(m_device, texture->image, nullptr);
+            vkFreeMemory(m_device, texture->imageMemory, nullptr);
+            vkDestroyImageView(m_device, texture->imageView, nullptr);
+        }
 
         vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
         vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
@@ -2370,7 +2390,13 @@ private:
 
         ImGui::SetNextWindowPos(ImVec2(10, 10));
         ImGui::Begin("Display Infomation", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-        ImGui::Text("test text");
+
+        if (ImGui::Combo("Texture", &m_currentTextureIndex, m_textureFileNames.data(), static_cast<int>(m_textureFileNames.size())))
+        {
+            vkQueueWaitIdle(m_graphicsQueue);
+            UpdateDescriptorSets();
+        }
+
         ImGui::End();
 
         ImGui::Render();
@@ -3854,26 +3880,8 @@ private:
         }
     }
 
-    /// @brief 创建描述符集
-    void CreateDescriptorSets()
+    void UpdateDescriptorSets()
     {
-        // 描述符布局对象的个数要匹配描述符集对象的个数
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_descriptorSetLayout);
-
-        VkDescriptorSetAllocateInfo allocInfo {};
-        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool     = m_descriptorPool; // 指定分配描述符集对象的描述符池
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        allocInfo.pSetLayouts        = layouts.data();
-
-        // 描述符集对象会在描述符池对象清除时自动被清除
-        // 在这里给每一个交换链图像使用相同的描述符布局创建对应的描述符集
-        m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()))
-        {
-            throw std::runtime_error("failed to allocate descriptor sets");
-        }
-
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
             VkDescriptorBufferInfo bufferInfo {};
@@ -3883,7 +3891,7 @@ private:
 
             VkDescriptorImageInfo imageInfo {};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView   = m_textureImageView;
+            imageInfo.imageView   = m_textures.at(m_textureFileNames[m_currentTextureIndex])->imageView;
             imageInfo.sampler     = m_textureSampler;
 
             std::array<VkWriteDescriptorSet, 2> descriptorWrites {};
@@ -3915,12 +3923,35 @@ private:
         }
     }
 
-    void CreateTextureImage()
+    /// @brief 创建描述符集
+    void CreateDescriptorSets()
     {
+        // 描述符布局对象的个数要匹配描述符集对象的个数
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_descriptorSetLayout);
+
+        VkDescriptorSetAllocateInfo allocInfo {};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = m_descriptorPool; // 指定分配描述符集对象的描述符池
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.pSetLayouts        = layouts.data();
+
+        // 描述符集对象会在描述符池对象清除时自动被清除
+        // 在这里给每一个交换链图像使用相同的描述符布局创建对应的描述符集
+        m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()))
+        {
+            throw std::runtime_error("failed to allocate descriptor sets");
+        }
+    }
+
+    std::unique_ptr<Texture> CreateTextureImage(const std::string& filePath)
+    {
+        auto texture = std::make_unique<Texture>();
+
         // STBI_rgb_alpha 强制使用alpha通道，如果没有会被添加一个默认的alpha值，texChannels返回图像实际的通道数
         int texWidth {0}, texHeight {0}, texChannels {0};
-        auto pixels = stbi_load("../resources/textures/alpha.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        std::cout << "image extent: " << texWidth << '\t' << texHeight << '\t' << texChannels << '\n';
+        auto pixels = stbi_load(filePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        std::cout << "image extent: " << texWidth << ", " << texHeight << ", " << texChannels << '\n';
         if (!pixels)
         {
             throw std::runtime_error("failed to load texture image");
@@ -3953,8 +3984,8 @@ private:
             VK_IMAGE_TILING_OPTIMAL,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            m_textureImage,
-            m_textureImageMemory
+            texture->image,
+            texture->imageMemory
         );
 
         // 图像布局的适用场合：
@@ -3966,16 +3997,20 @@ private:
 
         // 变换纹理图像到 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
         // 旧布局设置为 VK_IMAGE_LAYOUT_UNDEFINED ，因为不需要读取复制之前的图像内容
-        TransitionImageLayout(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        TransitionImageLayout(texture->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         // 执行图像数据复制操作
-        CopyBufferToImage(stagingBuffer, m_textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+        CopyBufferToImage(stagingBuffer, texture->image, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
         // 将图像转换为能够在着色器中采样的纹理数据图像
         TransitionImageLayout(
-            m_textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            texture->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         );
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
         vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+
+        texture->imageView = CreateImageView(texture->image, VK_FORMAT_R8G8B8A8_SRGB);
+
+        return texture;
     }
 
     /// @brief 创建指定格式的图像对象
@@ -3997,7 +4032,6 @@ private:
         VkImage& image,
         VkDeviceMemory& imageMemory
     )
-
     {
         // tiling成员变量可以是 VK_IMAGE_TILING_LINEAR 纹素以行主序的方式排列，可以直接访问图像
         //                     VK_IMAGE_TILING_OPTIMAL 纹素以一种对访问优化的方式排列
@@ -4118,11 +4152,6 @@ private:
         // 最后一个参数为数组时可以一次从一个缓冲复制数据到多个不同的图像对象
         vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
         EndSingleTimeCommands(commandBuffer);
-    }
-
-    void CreateTextureImageView()
-    {
-        m_textureImageView = CreateImageView(m_textureImage, VK_FORMAT_R8G8B8A8_SRGB);
     }
 
     VkImageView CreateImageView(VkImage image, VkFormat format)
@@ -4299,13 +4328,15 @@ private:
     std::vector<void*> m_uniformBuffersMapped {};
     VkDescriptorPool m_descriptorPool {nullptr};
     std::vector<VkDescriptorSet> m_descriptorSets {};
-    VkImage m_textureImage {nullptr};
-    VkDeviceMemory m_textureImageMemory {nullptr};
-    VkImageView m_textureImageView {nullptr};
+
     VkSampler m_textureSampler {nullptr};
 
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
+
+    std::vector<const char*> m_textureFileNames {"alpha.png", "barce.jpg", "nightsky.png"};
+    std::map<const char*, std::unique_ptr<Texture>> m_textures {};
+    int m_currentTextureIndex {0};
 };
 
 int main()
