@@ -132,6 +132,11 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 - 20_queryPool
 使用方法和 OpenGL 基本一样，先创建`VkQueryPool`，然后再使用`vkCmdBeginQuery`和`vkCmdEndQuery`查询：遮挡、管线统计、时间戳等。
 查询管线统计时，需要在创建逻辑设备时将`VkPhysicalDeviceFeatures.pipelineStatisticsQuery`设置为`VK_TRUE`，管线统计可以查询各种着色器（顶点、几何、片段、细分、计算等）的调用次数、输入输出个数等。
+- 21_renderPass
+renderPass 和 frameBuffer 的关系
+清除深度缓冲区，指定图元始终在最上层 vkCmdClearAttachments
+- 22_pipelineCache
+VkPipelineCache 的使用，可以像 SPV 文件一样写入磁盘并读取，可以使用 vkMergePipelineCaches 合并多个 VkPipelineCache
 ### 03_computeShader
 - 01_imageProcessing
 使用计算着色器对图像进行处理。
@@ -168,5 +173,3 @@ Separate   : Buffer0: x0y0z0x1y1z1... Buffer1: r0g0b0r1g1b1... Buffer2: u0v0u1v1
 
 ## TODO:
 pushDescriptorSet
-
-pipelineCache
