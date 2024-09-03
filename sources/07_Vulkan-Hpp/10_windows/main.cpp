@@ -225,8 +225,9 @@ struct SurfaceData
         : extent(extent_)
     {
         VkSurfaceKHR _surface;
-        VkResult err = glfwCreateWindowSurface(static_cast<VkInstance>(*instance), window, nullptr, &_surface);
-        surface      = vk::raii::SurfaceKHR(instance, _surface);
+        [[maybe_unused]] VkResult err = glfwCreateWindowSurface(static_cast<VkInstance>(*instance), window, nullptr, &_surface);
+
+        surface = vk::raii::SurfaceKHR(instance, _surface);
     }
 
     vk::Extent2D extent;
@@ -555,8 +556,7 @@ int main()
         };
 
         vk::RenderPassCreateInfo renderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpassDescription);
-        vk::raii::RenderPass renderPass1(device, renderPassCreateInfo);
-        vk::raii::RenderPass renderPass2(device, renderPassCreateInfo);
+        vk::raii::RenderPass renderPass(device, renderPassCreateInfo);
 
         //--------------------------------------------------------------------------------------
         std::vector<uint32_t> vertSPV = ReadFile("../resources/shaders/01_01_base_vert.spv");
@@ -567,7 +567,7 @@ int main()
         vk::raii::PipelineLayout pipelineLayout(device, {{}, {}});
         vk::raii::PipelineCache pipelineCache(device, vk::PipelineCacheCreateInfo());
 
-        vk::raii::Pipeline graphicsPipeline1 = makeGraphicsPipeline(
+        vk::raii::Pipeline graphicsPipeline = makeGraphicsPipeline(
             device,
             pipelineCache,
             vertexShaderModule,
@@ -579,22 +579,7 @@ int main()
             vk::FrontFace::eClockwise,
             false,
             pipelineLayout,
-            renderPass1
-        );
-
-        vk::raii::Pipeline graphicsPipeline2 = makeGraphicsPipeline(
-            device,
-            pipelineCache,
-            vertexShaderModule,
-            nullptr,
-            fragmentShaderModule,
-            nullptr,
-            0,
-            {},
-            vk::FrontFace::eClockwise,
-            false,
-            pipelineLayout,
-            renderPass2
+            renderPass
         );
 
         //--------------------------------------------------------------------------------------
@@ -607,9 +592,9 @@ int main()
         auto w1 = swapChainData1.swapchainExtent.width;
         auto h1 = swapChainData1.swapchainExtent.height;
         std::array<vk::raii::Framebuffer, MaxFramesInFlight> framebuffers1 {
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass1, imageViews1[0], w1, h1, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass1, imageViews1[1], w1, h1, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass1, imageViews1[2], w1, h1, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews1[0], w1, h1, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews1[1], w1, h1, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews1[2], w1, h1, 1)),
         };
 
         std::array<std::array<vk::ImageView, 1>, MaxFramesInFlight> imageViews2 {
@@ -621,9 +606,9 @@ int main()
         auto w2 = swapChainData2.swapchainExtent.width;
         auto h2 = swapChainData2.swapchainExtent.height;
         std::array<vk::raii::Framebuffer, MaxFramesInFlight> framebuffers2 {
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass2, imageViews2[0], w2, h2, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass2, imageViews2[1], w2, h2, 1)),
-            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass2, imageViews2[2], w2, h2, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews2[0], w2, h2, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews2[1], w2, h2, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews2[2], w2, h2, 1)),
         };
 
         //--------------------------------------------------------------------------------------
@@ -668,8 +653,8 @@ int main()
             window1.PollEvents();
             window2.PollEvents();
 
-            auto waitResult1 = device.waitForFences({drawFences1[CurrentFrameIndex]}, VK_TRUE, TimeOut);
-            auto waitResult2 = device.waitForFences({drawFences2[CurrentFrameIndex]}, VK_TRUE, TimeOut);
+            [[maybe_unused]] auto waitResult1 = device.waitForFences({drawFences1[CurrentFrameIndex]}, VK_TRUE, TimeOut);
+            [[maybe_unused]] auto waitResult2 = device.waitForFences({drawFences2[CurrentFrameIndex]}, VK_TRUE, TimeOut);
 
             auto [result1, imageIndex1] = swapChainData1.swapChain.acquireNextImage(TimeOut, imageAcquiredSemaphores1[CurrentFrameIndex]);
             assert(imageIndex1 < swapChainData1.images.size());
@@ -684,7 +669,7 @@ int main()
                     window1.window,
                     swapChainData1,
                     framebuffers1,
-                    renderPass1,
+                    renderPass,
                     physicalDevice,
                     device,
                     surfaceData1.surface,
@@ -702,7 +687,7 @@ int main()
                     window2.window,
                     swapChainData2,
                     framebuffers2,
-                    renderPass2,
+                    renderPass,
                     physicalDevice,
                     device,
                     surfaceData2.surface,
@@ -720,16 +705,16 @@ int main()
             std::thread recordThread1([&]() {
                 cmd1.reset();
 
-                std::array<vk::ClearValue, 1> clearValues1;
-                clearValues1[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
-                vk::RenderPassBeginInfo renderPassBeginInfo1(
-                    renderPass1, framebuffers1[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent), clearValues1
+                std::array<vk::ClearValue, 1> clearValues;
+                clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+                vk::RenderPassBeginInfo renderPassBeginInfo(
+                    renderPass, framebuffers1[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData1.swapchainExtent), clearValues
                 );
 
                 cmd1.begin({});
-                cmd1.beginRenderPass(renderPassBeginInfo1, vk::SubpassContents::eInline);
+                cmd1.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
-                cmd1.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline1);
+                cmd1.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
                 cmd1.setViewport(
                     0,
                     vk::Viewport(
@@ -752,16 +737,16 @@ int main()
             std::thread recordThread2([&]() {
                 cmd2.reset();
 
-                std::array<vk::ClearValue, 1> clearValues2;
-                clearValues2[0].color = vk::ClearColorValue(0.3f, 0.2f, 0.3f, 1.f);
-                vk::RenderPassBeginInfo renderPassBeginInfo2(
-                    renderPass2, framebuffers2[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent), clearValues2
+                std::array<vk::ClearValue, 1> clearValues;
+                clearValues[0].color = vk::ClearColorValue(0.3f, 0.2f, 0.3f, 1.f);
+                vk::RenderPassBeginInfo renderPassBeginInfo(
+                    renderPass, framebuffers2[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData2.swapchainExtent), clearValues
                 );
 
                 cmd2.begin({});
-                cmd2.beginRenderPass(renderPassBeginInfo2, vk::SubpassContents::eInline);
+                cmd2.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
-                cmd2.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline2);
+                cmd2.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
                 cmd2.setViewport(
                     0,
                     vk::Viewport(
@@ -814,7 +799,7 @@ int main()
             try
             {
                 vk::PresentInfoKHR presentInfoKHR(presentWaits, swapchains, imageIndices, results);
-                auto presentResult = graphicsTransferPresentQueue.presentKHR(presentInfoKHR);
+                [[maybe_unused]] auto presentResult = graphicsTransferPresentQueue.presentKHR(presentInfoKHR);
 
                 if (results[0] != vk::Result::eSuccess)
                 {
@@ -823,7 +808,7 @@ int main()
                         window1.window,
                         swapChainData1,
                         framebuffers1,
-                        renderPass1,
+                        renderPass,
                         physicalDevice,
                         device,
                         surfaceData1.surface,
@@ -841,7 +826,7 @@ int main()
                         window2.window,
                         swapChainData2,
                         framebuffers2,
-                        renderPass2,
+                        renderPass,
                         physicalDevice,
                         device,
                         surfaceData2.surface,

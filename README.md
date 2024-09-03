@@ -165,11 +165,26 @@ VkPipelineCache 的使用，可以像 SPV 文件一样写入磁盘并读取，�
 `vkCmdBeginRenderingKHR vkCmdEndRenderingKHR` 不需要创建 `VkRenderPass VkFrameBuffer`，使用时需要开启 Instance 和 Device 的扩展，创建管线时需要指定 VkGraphicsPipelineCreateInfo.pNext 为 VkPipelineRenderingCreateInfoKHR，绘制前和绘制后需要转换图像布局， dynamicRendering 不像 VkRenderPass 一样会对图像布局进行转换，所以需要手动转换。`vkCmdBeginRendering vkCmdEndRendering` Vulkan-1.3 开始支持，不需要开启扩展，只需要在创建实例时，将`VkApplicationInfo.apiVersion` 设置为 `VK_API_VERSION_1_3`，然后在创建逻辑设备时开启设备特性：`dynamicRendering`
 ### 07_Vulkan-Hpp
 - 01_helloTriangle
-  使用 Vulkan 的C++头文件离屏绘制一个三角形并保存到图片中。
+使用 Vulkan 的C++头文件离屏绘制一个三角形并保存到图片中，只有一帧。
+- 02_multiFrame
+GPU 多帧并行渲染
+- 03_buffer
+自定义几何数据（顶点、索引）
+- 04_uniform
+使用描述符集（Uniform）设置 MVP 矩阵
+- 05_texture
+使用纹理绘制
+- 06_depthBuffer
+开启深度测试
+- 07_swapChain
+创建窗口渲染一个三角形
+- 08_offscreen
+离屏渲染到 vkImage 再以纹理渲染到窗口
 - 09_viewer
-  模仿 VTK 的一个Demo
+模仿 VTK 的一个Demo
 - 10_windows
-  多个窗口不同线程
-
+多个窗口不同线程同时记录命令并提交，不同窗口使用同一个渲染管线
+- 11_productConsume
+生产者消费者模型，一个线程用来绘制，一个线程用来将绘制的结果保存为图片（GPU多帧并行渲染，不创建窗口）
 ## TODO:
 pushDescriptorSet

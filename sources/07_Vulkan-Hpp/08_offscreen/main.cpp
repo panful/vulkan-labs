@@ -3,9 +3,6 @@
 
 #include <GLFW/glfw3.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -17,6 +14,7 @@ static std::vector<const char*> EnableLayerNames {"VK_LAYER_KHRONOS_validation"}
 static std::vector<const char*> EnableExtensionNames {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
 
 static vk::Extent2D extent {800, 600};
+static vk::Format colorFormat {};
 
 constexpr static uint64_t TimeOut {std::numeric_limits<uint64_t>::max()};
 constexpr static uint32_t MaxFramesInFlight {3};
@@ -158,7 +156,14 @@ struct Window
         window = glfwCreateWindow(extent.width, extent.height, _name.c_str(), nullptr, nullptr);
 
         glfwSetWindowUserPointer(window, this);
-        glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int width, int height) {});
+        glfwSetFramebufferSizeCallback(window, ResizeCallback);
+    }
+
+    static void ResizeCallback(GLFWwindow* window, int width, int height)
+    {
+        auto instance     = static_cast<Window*>(glfwGetWindowUserPointer(window));
+        instance->resized = true;
+        instance->extent  = vk::Extent2D {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
     }
 
     ~Window()
@@ -190,6 +195,7 @@ struct Window
 
     GLFWwindow* window {};
     vk::Extent2D extent {};
+    bool resized {};
 };
 
 struct SurfaceData
@@ -712,114 +718,50 @@ struct ImageData
     vk::raii::ImageView imageView       = nullptr;
 };
 
-struct TextureData
+void RecreateOffscreenResources(
+    const vk::raii::PhysicalDevice& physicalDevice,
+    const vk::raii::Device& device,
+    const vk::Extent2D& extent,
+    const vk::raii::RenderPass& renderPass,
+    const vk::Sampler& sampler,
+    const vk::raii::DescriptorSets& descriptorSets,
+    std::array<ImageData, MaxFramesInFlight>& colorImages,
+    std::array<vk::raii::Framebuffer, MaxFramesInFlight>& framebuffers
+)
 {
-    TextureData(
-        vk::raii::PhysicalDevice const& physicalDevice,
-        vk::raii::Device const& device,
-        vk::Extent2D const& extent_               = {256, 256},
-        vk::ImageUsageFlags usageFlags            = {},
-        vk::FormatFeatureFlags formatFeatureFlags = {},
-        bool anisotropyEnable                     = false,
-        bool forceStaging                         = false
-    )
-        : format(vk::Format::eR8G8B8A8Unorm)
-        , extent(extent_)
-        , sampler(
-              device,
-              {{},
-               vk::Filter::eLinear,
-               vk::Filter::eLinear,
-               vk::SamplerMipmapMode::eLinear,
-               vk::SamplerAddressMode::eRepeat,
-               vk::SamplerAddressMode::eRepeat,
-               vk::SamplerAddressMode::eRepeat,
-               0.0f,
-               anisotropyEnable,
-               16.0f,
-               false,
-               vk::CompareOp::eNever,
-               0.0f,
-               0.0f,
-               vk::BorderColor::eFloatOpaqueBlack}
-          )
-    {
-        vk::FormatProperties formatProperties = physicalDevice.getFormatProperties(format);
+    std::cout << "recreate offscreen: " << extent.width << '\t' << extent.height << '\n';
 
-        formatFeatureFlags |= vk::FormatFeatureFlagBits::eSampledImage;
-        needsStaging = forceStaging || ((formatProperties.linearTilingFeatures & formatFeatureFlags) != formatFeatureFlags);
-        vk::ImageTiling imageTiling;
-        vk::ImageLayout initialLayout;
-        vk::MemoryPropertyFlags requirements;
-        if (needsStaging)
-        {
-            assert((formatProperties.optimalTilingFeatures & formatFeatureFlags) == formatFeatureFlags);
-            stagingBufferData = BufferData(physicalDevice, device, extent.width * extent.height * 4, vk::BufferUsageFlagBits::eTransferSrc);
-            imageTiling       = vk::ImageTiling::eOptimal;
-            usageFlags |= vk::ImageUsageFlagBits::eTransferDst;
-            initialLayout = vk::ImageLayout::eUndefined;
-        }
-        else
-        {
-            imageTiling   = vk::ImageTiling::eLinear;
-            initialLayout = vk::ImageLayout::ePreinitialized;
-            requirements  = vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible;
-        }
-        imageData = ImageData(
+    for (size_t i = 0; i < MaxFramesInFlight; ++i)
+    {
+        colorImages[i] = ImageData(
             physicalDevice,
             device,
-            format,
+            colorFormat,
             extent,
-            imageTiling,
-            usageFlags | vk::ImageUsageFlagBits::eSampled,
-            initialLayout,
-            requirements,
+            vk::ImageTiling::eOptimal,
+            vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+            vk::ImageLayout::eUndefined,
+            vk::MemoryPropertyFlagBits::eDeviceLocal,
             vk::ImageAspectFlagBits::eColor
         );
     }
 
-    template <typename ImageGenerator>
-    void setImage(vk::raii::CommandBuffer const& commandBuffer, ImageGenerator const& imageGenerator)
+    for (size_t i = 0; i < MaxFramesInFlight; ++i)
     {
-        void* data = needsStaging ? stagingBufferData.deviceMemory.mapMemory(0, stagingBufferData.buffer.getMemoryRequirements().size)
-                                  : imageData.deviceMemory.mapMemory(0, imageData.image.getMemoryRequirements().size);
-        imageGenerator(data, extent);
-        needsStaging ? stagingBufferData.deviceMemory.unmapMemory() : imageData.deviceMemory.unmapMemory();
-
-        if (needsStaging)
-        {
-            // Since we're going to blit to the texture image, set its layout to eTransferDstOptimal
-            setImageLayout(commandBuffer, imageData.image, imageData.format, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-            vk::BufferImageCopy copyRegion(
-                0,
-                extent.width,
-                extent.height,
-                vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
-                vk::Offset3D(0, 0, 0),
-                vk::Extent3D(extent, 1)
-            );
-            commandBuffer.copyBufferToImage(stagingBufferData.buffer, imageData.image, vk::ImageLayout::eTransferDstOptimal, copyRegion);
-            // Set the layout for the texture image from eTransferDstOptimal to eShaderReadOnlyOptimal
-            setImageLayout(
-                commandBuffer, imageData.image, imageData.format, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal
-            );
-        }
-        else
-        {
-            // If we can use the linear tiled image as a texture, just do it
-            setImageLayout(
-                commandBuffer, imageData.image, imageData.format, vk::ImageLayout::ePreinitialized, vk::ImageLayout::eShaderReadOnlyOptimal
-            );
-        }
+        std::array<vk::ImageView, 1> imageViews {colorImages[i].imageView};
+        framebuffers[i] = vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPass, imageViews, extent.width, extent.height, 1));
     }
 
-    vk::Format format;
-    vk::Extent2D extent;
-    bool needsStaging;
-    BufferData stagingBufferData = nullptr;
-    ImageData imageData          = nullptr;
-    vk::raii::Sampler sampler;
-};
+    for (size_t i = 0; i < MaxFramesInFlight; ++i)
+    {
+        vk::DescriptorImageInfo descriptorImageInfo(sampler, colorImages[i].imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
+
+        std::array writeDescriptorSets {
+            vk::WriteDescriptorSet {descriptorSets[i], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo, nullptr}
+        };
+        device.updateDescriptorSets(writeDescriptorSets, nullptr);
+    }
+}
 
 int main()
 {
@@ -879,7 +821,7 @@ int main()
         assert(optUsePhysicalDeviceIndex);
         auto usePhysicalDeviceIndex = optUsePhysicalDeviceIndex.value();
         auto physicalDevice         = physicalDevices[usePhysicalDeviceIndex];
-        auto colorFormat            = pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surfaceData.surface)).format;
+        colorFormat                 = pickSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(surfaceData.surface)).format;
 
         //--------------------------------------------------------------------------------------
         // 创建一个逻辑设备
@@ -910,6 +852,102 @@ int main()
         vk::raii::Queue graphicsTransferPresentQueue(device, graphicsTransferPresentQueueIndex, 0);
 
         //--------------------------------------------------------------------------------------
+        // offscreen
+        std::array<ImageData, MaxFramesInFlight> colorImageDatasOffscreen {
+            ImageData(
+                physicalDevice,
+                device,
+                colorFormat,
+                extent,
+                vk::ImageTiling::eOptimal,
+                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+                vk::ImageLayout::eUndefined,
+                vk::MemoryPropertyFlagBits::eDeviceLocal,
+                vk::ImageAspectFlagBits::eColor
+            ),
+            ImageData(
+                physicalDevice,
+                device,
+                colorFormat,
+                extent,
+                vk::ImageTiling::eOptimal,
+                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+                vk::ImageLayout::eUndefined,
+                vk::MemoryPropertyFlagBits::eDeviceLocal,
+                vk::ImageAspectFlagBits::eColor
+            ),
+            ImageData(
+                physicalDevice,
+                device,
+                colorFormat,
+                extent,
+                vk::ImageTiling::eOptimal,
+                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+                vk::ImageLayout::eUndefined,
+                vk::MemoryPropertyFlagBits::eDeviceLocal,
+                vk::ImageAspectFlagBits::eColor
+            )
+        };
+
+        //--------------------------------------------------------------------------------------
+        vk::AttachmentReference colorAttachmentOffscreen(0, vk::ImageLayout::eColorAttachmentOptimal);
+        std::array colorAttachmentsOffscreen {colorAttachmentOffscreen};
+        vk::SubpassDescription subpassDescriptionOffscreen(
+            vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachmentsOffscreen, {}, {}, {}
+        );
+        std::vector<vk::AttachmentDescription> attachmentDescriptionsOffscreen {
+            {{},
+             colorFormat, vk::SampleCountFlagBits::e1,
+             vk::AttachmentLoadOp::eClear,
+             vk::AttachmentStoreOp::eStore,
+             vk::AttachmentLoadOp::eDontCare,
+             vk::AttachmentStoreOp::eDontCare,
+             vk::ImageLayout::eUndefined,
+             vk::ImageLayout::eShaderReadOnlyOptimal}
+        };
+
+        vk::RenderPassCreateInfo renderPassCreateInfoOffscreen(
+            vk::RenderPassCreateFlags(), attachmentDescriptionsOffscreen, subpassDescriptionOffscreen
+        );
+        vk::raii::RenderPass renderPassOffscreen(device, renderPassCreateInfoOffscreen);
+
+        //--------------------------------------------------------------------------------------
+        std::vector<uint32_t> vertSPVOffscreen = ReadFile("../resources/shaders/01_01_base_vert.spv");
+        std::vector<uint32_t> fragSPVOffscreen = ReadFile("../resources/shaders/01_01_base_frag.spv");
+        vk::raii::ShaderModule vertexShaderModuleOffscreen(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPVOffscreen));
+        vk::raii::ShaderModule fragmentShaderModuleOffscreen(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPVOffscreen));
+
+        vk::raii::PipelineLayout pipelineLayoutOffscreen(device, {{}, {}});
+        vk::raii::PipelineCache pipelineCacheOffscreen(device, vk::PipelineCacheCreateInfo());
+
+        vk::raii::Pipeline graphicsPipelineOffscreen = makeGraphicsPipeline(
+            device,
+            pipelineCacheOffscreen,
+            vertexShaderModuleOffscreen,
+            nullptr,
+            fragmentShaderModuleOffscreen,
+            nullptr,
+            0,
+            {},
+            vk::FrontFace::eClockwise,
+            false,
+            pipelineLayoutOffscreen,
+            renderPassOffscreen
+        );
+
+        //--------------------------------------------------------------------------------------
+        std::array<std::array<vk::ImageView, 1>, MaxFramesInFlight> imageViewsOffscreen {
+            colorImageDatasOffscreen[0].imageView, colorImageDatasOffscreen[1].imageView, colorImageDatasOffscreen[2].imageView
+        };
+
+        std::array<vk::raii::Framebuffer, MaxFramesInFlight> framebuffersOffscreen {
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPassOffscreen, imageViewsOffscreen[0], extent.width, extent.height, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPassOffscreen, imageViewsOffscreen[1], extent.width, extent.height, 1)),
+            vk::raii::Framebuffer(device, vk::FramebufferCreateInfo({}, renderPassOffscreen, imageViewsOffscreen[2], extent.width, extent.height, 1)),
+        };
+
+        //--------------------------------------------------------------------------------------
+        // quad
         vk::AttachmentReference colorAttachment(0, vk::ImageLayout::eColorAttachmentOptimal);
         std::array colorAttachments {colorAttachment};
         vk::SubpassDescription subpassDescription(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorAttachments, {}, {}, {});
@@ -959,17 +997,26 @@ int main()
         );
 
         //--------------------------------------------------------------------------------------
-        int texWidth {0}, texHeight {0}, texChannels {0};
-        auto pixels = stbi_load("../resources/textures/nightsky.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        assert(pixels);
-
-        TextureData textureData(physicalDevice, device, {static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight)});
-        oneTimeSubmit(device, commandPool, graphicsTransferPresentQueue, [&textureData, pixels](vk::raii::CommandBuffer const& commandBuffer) {
-            textureData.setImage(commandBuffer, [pixels](void* data, vk::Extent2D extent) {
-                std::memcpy(data, pixels, static_cast<size_t>(extent.width * extent.height * 4));
-            });
-        });
-        stbi_image_free(pixels);
+        vk::raii::Sampler sampler(
+            device,
+            vk::SamplerCreateInfo {
+                {},
+                vk::Filter::eLinear,
+                vk::Filter::eLinear,
+                vk::SamplerMipmapMode::eLinear,
+                vk::SamplerAddressMode::eRepeat,
+                vk::SamplerAddressMode::eRepeat,
+                vk::SamplerAddressMode::eRepeat,
+                0.0f,
+                false,
+                16.0f,
+                false,
+                vk::CompareOp::eNever,
+                0.0f,
+                0.0f,
+                vk::BorderColor::eFloatOpaqueBlack
+            }
+        );
 
         //--------------------------------------------------------------------------------------
         std::array descriptorPoolSizes {
@@ -986,12 +1033,14 @@ int main()
         };
         vk::raii::DescriptorSets descriptorSets(device, {descriptorPool, descriptorSetLayouts});
 
-        vk::DescriptorImageInfo descriptorImageInfo(textureData.sampler, textureData.imageData.imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
+        vk::DescriptorImageInfo descriptorImageInfo0(sampler, colorImageDatasOffscreen[0].imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
+        vk::DescriptorImageInfo descriptorImageInfo1(sampler, colorImageDatasOffscreen[1].imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
+        vk::DescriptorImageInfo descriptorImageInfo2(sampler, colorImageDatasOffscreen[2].imageView, vk::ImageLayout::eShaderReadOnlyOptimal);
 
         std::array<std::array<vk::WriteDescriptorSet, 1>, MaxFramesInFlight> writeDescriptorSets {
-            std::array {vk::WriteDescriptorSet {descriptorSets[0], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo, nullptr}},
-            std::array {vk::WriteDescriptorSet {descriptorSets[1], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo, nullptr}},
-            std::array {vk::WriteDescriptorSet {descriptorSets[2], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo, nullptr}}
+            std::array {vk::WriteDescriptorSet {descriptorSets[0], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo0, nullptr}},
+            std::array {vk::WriteDescriptorSet {descriptorSets[1], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo1, nullptr}},
+            std::array {vk::WriteDescriptorSet {descriptorSets[2], 0, 0, vk::DescriptorType::eCombinedImageSampler, descriptorImageInfo2, nullptr}}
         };
         device.updateDescriptorSets(writeDescriptorSets[0], nullptr);
         device.updateDescriptorSets(writeDescriptorSets[1], nullptr);
@@ -1056,6 +1105,19 @@ int main()
                     graphicsTransferPresentQueueIndex,
                     graphicsTransferPresentQueueIndex
                 );
+
+                // 离屏渲染和窗口显示大小始终一致
+                RecreateOffscreenResources(
+                    physicalDevice,
+                    device,
+                    swapChainData.swapchainExtent,
+                    renderPassOffscreen,
+                    sampler,
+                    descriptorSets,
+                    colorImageDatasOffscreen,
+                    framebuffersOffscreen
+                );
+
                 continue;
             }
             else if (vk::Result::eSuccess != result && vk::Result::eSuboptimalKHR != result)
@@ -1067,14 +1129,45 @@ int main()
 
             auto&& cmd = commandBuffers[CurrentFrameIndex];
             cmd.reset();
+            cmd.begin({});
 
+            //---------------------------------------------------------------------------
+            // offscreen
+            std::array<vk::ClearValue, 1> clearValuesOffscreen;
+            clearValuesOffscreen[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+            vk::RenderPassBeginInfo renderPassBeginInfoOffscreen(
+                renderPassOffscreen,
+                framebuffersOffscreen[CurrentFrameIndex],
+                vk::Rect2D(vk::Offset2D(0, 0), swapChainData.swapchainExtent),
+                clearValuesOffscreen
+            );
+
+            commandBuffers[CurrentFrameIndex].beginRenderPass(renderPassBeginInfoOffscreen, vk::SubpassContents::eInline);
+            commandBuffers[CurrentFrameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipelineOffscreen);
+
+            commandBuffers[CurrentFrameIndex].setViewport(
+                0,
+                vk::Viewport(
+                    0.0f,
+                    0.0f,
+                    static_cast<float>(swapChainData.swapchainExtent.width),
+                    static_cast<float>(swapChainData.swapchainExtent.height),
+                    0.0f,
+                    1.0f
+                )
+            );
+            commandBuffers[CurrentFrameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainData.swapchainExtent));
+
+            commandBuffers[CurrentFrameIndex].draw(3, 1, 0, 0);
+            commandBuffers[CurrentFrameIndex].endRenderPass();
+
+            //---------------------------------------------------------------------------
+            // quad
             std::array<vk::ClearValue, 1> clearValues;
-            clearValues[0].color = vk::ClearColorValue(0.1f, 0.2f, 0.3f, 1.f);
+            clearValues[0].color = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
             vk::RenderPassBeginInfo renderPassBeginInfo(
                 renderPass, framebuffers[CurrentFrameIndex], vk::Rect2D(vk::Offset2D(0, 0), swapChainData.swapchainExtent), clearValues
             );
-
-            cmd.begin({});
             cmd.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
             cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
@@ -1111,25 +1204,40 @@ int main()
             try
             {
                 auto presentResult = graphicsTransferPresentQueue.presentKHR(presentInfoKHR);
+                if (vk::Result::eErrorOutOfDateKHR == presentResult || vk::Result::eSuboptimalKHR == presentResult || window.resized)
+                {
+                    window.resized = false;
+
+                    RecreateSwapChain(
+                        CurrentFrameIndex,
+                        window.window,
+                        swapChainData,
+                        framebuffers,
+                        renderPass,
+                        physicalDevice,
+                        device,
+                        surfaceData.surface,
+                        window.extent,
+                        vk::ImageUsageFlagBits::eColorAttachment,
+                        &swapChainData.swapChain,
+                        graphicsTransferPresentQueueIndex,
+                        graphicsTransferPresentQueueIndex
+                    );
+
+                    RecreateOffscreenResources(
+                        physicalDevice,
+                        device,
+                        swapChainData.swapchainExtent,
+                        renderPassOffscreen,
+                        sampler,
+                        descriptorSets,
+                        colorImageDatasOffscreen,
+                        framebuffersOffscreen
+                    );
+                }
             }
             catch (vk::SystemError& err)
             {
-                RecreateSwapChain(
-                    CurrentFrameIndex,
-                    window.window,
-                    swapChainData,
-                    framebuffers,
-                    renderPass,
-                    physicalDevice,
-                    device,
-                    surfaceData.surface,
-                    window.extent,
-                    vk::ImageUsageFlagBits::eColorAttachment,
-                    &swapChainData.swapChain,
-                    graphicsTransferPresentQueueIndex,
-                    graphicsTransferPresentQueueIndex
-                );
-
                 std::cout << err.what() << std::endl;
             }
 
