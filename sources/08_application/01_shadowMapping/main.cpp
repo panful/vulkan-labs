@@ -1516,7 +1516,7 @@ private:
         rasterizer.lineWidth                              = 1.f;
         rasterizer.cullMode                               = VK_CULL_MODE_NONE;               // 表面剔除类型，正面、背面、双面剔除
         rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE; // 指定顺时针的顶点序是正面还是反面
-        rasterizer.depthBiasEnable                        = VK_FALSE;
+        rasterizer.depthBiasEnable                        = VK_TRUE;
         rasterizer.depthBiasConstantFactor                = 1.f;
         rasterizer.depthBiasClamp                         = 0.f;
         rasterizer.depthBiasSlopeFactor                   = 0.f;
@@ -1562,7 +1562,7 @@ private:
         colorBlending.blendConstants[3] = 0.0f;
 
         // 动态状态，视口大小、线宽、混合常量等
-        std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS};
         VkPipelineDynamicStateCreateInfo dynamicState {};
         dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -1827,6 +1827,7 @@ private:
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowMapGraphicsPipeline);
         vkCmdSetViewport(commandBuffer, 0, 1, &viewportShadowMap);
         vkCmdSetScissor(commandBuffer, 0, 1, &scissorShadowMap);
+        vkCmdSetDepthBias(commandBuffer, 1.25f, 0.0f, 1.75f);
         vkCmdBindDescriptorSets(
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowMapPipelineLayout, 0, 1, &m_shadowMapDescriptorSets.at(m_currentFrame), 0, nullptr
         );
