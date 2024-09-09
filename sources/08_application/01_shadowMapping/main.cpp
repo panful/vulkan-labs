@@ -411,7 +411,7 @@ private:
 
         ImGui::SetNextWindowPos(ImVec2(10, 10));
         ImGui::Begin("Display Infomation", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-        ImGui::Text("test text");
+        ImGui::Checkbox("Enable PCF", &m_enablePCF);
         ImGui::End();
 
         ImGui::Render();
@@ -1270,12 +1270,18 @@ private:
         dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
         dynamicState.pDynamicStates    = dynamicStates.data();
 
+        VkPushConstantRange pushConstantRange = {};
+        pushConstantRange.stageFlags          = VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset              = 0;
+        pushConstantRange.size                = sizeof(int);
+
         // 管线布局，在着色器中使用 uniform 变量
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
         pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount         = 1;
         pipelineLayoutInfo.pSetLayouts            = &m_lightDescriptorSetLayout;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges    = &pushConstantRange;
 
         if (VK_SUCCESS != vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_lightPipelineLayout))
         {
@@ -1852,10 +1858,11 @@ private:
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightGraphicsPipeline);
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        int pc_pcf = m_enablePCF ? 1 : 0;
+        vkCmdPushConstants(commandBuffer, m_lightPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(int), &pc_pcf);
         vkCmdBindDescriptorSets(
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightPipelineLayout, 0, 1, &m_lightDescriptorSets.at(m_currentFrame), 0, nullptr
         );
-
         drawDrawable(m_drawableSphere);
         drawDrawable(m_drawablePlane);
 
@@ -2803,6 +2810,7 @@ private:
     bool m_isTranslating {false};
 
     glm::vec3 m_lightPos {0, -5, 0};
+    bool m_enablePCF {};
 
     uint32_t m_minImageCount {0};
     VkDescriptorPool m_imguiDescriptorPool {nullptr};
