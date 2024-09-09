@@ -5,8 +5,6 @@ layout(location = 0) out vec4 outColor;
 
 layout(binding = 1) uniform sampler2D shadowMap;
 
-// 如果是点光源，需要将非线性的深度值转换为线性（因为点光源使用的是透视投影矩阵）
-// 此处只是简单示例，没有进行这一步操作
 float shadowCalculation()
 {
     vec3 projPos = inPosInLightSpace.xyz / inPosInLightSpace.w;
