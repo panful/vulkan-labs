@@ -137,6 +137,8 @@ renderPass 和 frameBuffer 的关系
 清除深度缓冲区，指定图元始终在最上层 vkCmdClearAttachments
 - 22_pipelineCache
 VkPipelineCache 的使用，可以像 SPV 文件一样写入磁盘并读取，可以使用 vkMergePipelineCaches 合并多个 VkPipelineCache
+- 23_textureCubeMap
+立方体贴图，在 02_16_transform_TEST4 的基础上修改，如果要想实现天空盒的效果，只需要相机的观察点始终在(0,0,0)并且不响应相机的移动操作即可
 ### 03_computeShader
 - 01_imageProcessing
 使用计算着色器对图像进行处理。
