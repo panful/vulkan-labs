@@ -1,6 +1,6 @@
-/**
- * 1. 离屏渲染到图片上，再以纹理方式渲染到屏幕
- * 2. 离屏渲染的图片大小和窗口大小始终保持一致
+/** 
+ * 1. 离屏渲染的图片大小和窗口大小始终保持一致
+ * 2 .离屏渲染到图片VkImage上，再以纹理方式渲染到屏幕
  */
 
 #define TEST1
@@ -2861,10 +2861,6 @@ int main()
 // 窗口默认大小
 constexpr uint32_t WIDTH  = 800;
 constexpr uint32_t HEIGHT = 600;
-
-// 离屏帧缓存的大小
-constexpr uint32_t WIDTH  = 2048;
-constexpr uint32_t HEIGHT = 2048;
 
 // 同时并行处理的帧数
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
