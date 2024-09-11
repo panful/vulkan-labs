@@ -191,5 +191,7 @@ GPU 多帧并行渲染
 ### 08_application
 - 01_shadowMap
 阴影贴图实现光照阴影，先以光源视角生成一张深度图（阴影贴图），这张图记录了从光源到场景中每个可见片段的距离，再实际渲染一次场景，通过比较当前片段的深度值（光源视角的深度值），判断是否在阴影中。
+- 02_hdr
+高动态范围图像(High-Dynamic Range)，在 02_16_TEST5 的基础上修改，简单理解就是在离屏渲染时，将color-attachment的格式设置为float16或float32，这样就可以保存位数更大的颜色值（一般情况下是 uint_8 只有255位），然后将这个颜色附件再通过HDR算法处理一次（将float32或float16转换为uint_8）
 ## TODO:
 pushDescriptorSet
