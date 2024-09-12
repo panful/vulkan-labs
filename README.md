@@ -80,6 +80,8 @@ glslangValidator -V -o frag.spv base.frag
 创建描述符集 vkAllocateDescriptorSets vkUpdateDescriptorSets
 创建指令缓冲 vkAllocateCommandBuffers
 创建同步对象 vkCreateSemaphore vkCreateFence
+- 10_buildCommandBuffers
+只创建“一次”命令缓冲，因为每一帧记录到命令缓冲中的所有命令都是一样的，所以不用每一次渲染循环都创建一次命令缓冲，只需要统一将命令全部记录到 CommandBuffer 中，然后每一次渲染循环都使用该 CommandBuffer 即可。需要保证交换链中的图像数量和GPU最大并行帧数一致，当窗口大小改变后（Framebuffer会改变）需要重新记录一次 CommandBuffer 。只要 CommandBuffer 中使用的资源以及命令没有改变就不需要重新记录。
 ### 02_advance
 [Vulkan SaschaWillems](https://github.com/SaschaWillems/Vulkan)
 
