@@ -1,0 +1,50 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: Clang Format
+        entry: clang-format -i --style=file
+        language: system
+        files: \.(c|cpp|h|hpp|cc|cxx)$
+        exclude: ^(assets|third_party)/
+        require_serial: true
+
+      - id: text-style-check
+        name: Normalize Text Style And Line Endings
+        entry: python hooks/text_style_check.py
+        language: system
+        stages: [pre-commit]
+        types: [text]
+        exclude: ^(assets|third_party)/
+
+      - id: utf8-check
+        name: Check UTF-8 without BOM / ASCII
+        entry: python hooks/utf8_check.py
+        language: system
+        stages: [pre-commit]
+        types: [text]
+        exclude: ^(assets|third_party)/
+
+      - id: clang-tidy-check
+        name: Run Clang-Tidy
+        entry: python hooks/clang_tidy_check.py
+        language: system
+        files: \.(c|cpp|h|hpp|cc|cxx)$
+        exclude: ^(assets|third_party)/
+        require_serial: true
+        verbose: true
+
+      - id: validate-config-files
+        name: Validate JSON and YAML
+        entry: python hooks/validate_config_files.py
+        language: system
+        files: \.(json|yml|yaml)$
+        exclude: ^(assets|third_party)/
+
+      - id: check-large-files
+        name: Check Large Files
+        entry: python hooks/check_large_files.py
+        language: system
+        stages: [pre-commit]
+        pass_filenames: true
+        exclude: ^(assets|third_party)/

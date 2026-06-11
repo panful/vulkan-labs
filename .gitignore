@@ -6,3 +6,10 @@
 /install
 /libs
 /includes
+
+# pre-commit
+.pre-commit-cache/
+
+# Python cache
+__pycache__/
+*.pyc
