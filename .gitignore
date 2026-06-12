@@ -1,15 +1,8 @@
-/.vs
-/.vscode
-/build
-/out
-/target
-/install
-/libs
-/includes
+build/
 
-# pre-commit
-.pre-commit-cache/
+.vs/
+out/
 
-# Python cache
-__pycache__/
-*.pyc
+.vscode/
+
+.claude/
