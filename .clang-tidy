@@ -1,4 +1,6 @@
 ---
+HeaderFilterRegex: 'src/.*'
+SystemHeaders: false
 Checks: >
   -*,
   clang-analyzer-core.CallAndMessageModeling,
