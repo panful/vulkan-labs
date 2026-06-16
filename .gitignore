@@ -1,8 +1,9 @@
 build/
+CMakeUserPresets.json
+
+.vscode/
 
 .vs/
 out/
-
-.vscode/
 
 .claude/

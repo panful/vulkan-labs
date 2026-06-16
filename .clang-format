@@ -1,87 +1,10 @@
-
-# https://clang.llvm.org/docs/ClangFormatStyleOptions.html
-
-BasedOnStyle: WebKit
+---
+BasedOnStyle: Google
 Language: Cpp
-
-# 不使用制表符
 UseTab: Never
-
-# 缩进宽度
-IndentWidth: 4
-
-# 大括号之前换行
-BreakBeforeBraces: Custom
-# 大括号换行，只有当BreakBeforeBraces设置为Custom时才有效
-BraceWrapping:
-  AfterControlStatement:    true
-  AfterFunction:            true
-  AfterClass:               true
-  AfterStruct:              true
-  AfterEnum:                true
-  AfterCaseLabel:           true  # case  新起一行
-  BeforeCatch:              true  # catch 新起一行
-  BeforeElse:               true  # else  新起一行
-  BeforeLambdaBody:         false # lambda 不换行
-
-# 尾随的注释对齐
-AlignTrailingComments:
-  Kind: Always
-  OverEmptyLines: 2 # 尾随注释即使行不连续也对齐（没有注释的行不能超过2）
-
-# 每行最多字符数，0表示没有字符数限制
-ColumnLimit: 150
-
-# 禁止函数定义与函数名在同一行
-AllowShortFunctionsOnASingleLine: false
-
-# template<typename T>之后换行
-AlwaysBreakTemplateDeclarations: true
-
-# 构造函数初始值设定项换行样式
-BreakConstructorInitializers: BeforeComma
-
-# 继承列表样式
-BreakInheritanceList: BeforeComma
-
-# 对齐连续的多行赋值
-AlignConsecutiveAssignments: true
-
-# 自动补充namespace注释
-FixNamespaceComments: true
-
-# 定义之间空一行，函数与函数之间，类与类之间等
-SeparateDefinitionBlocks : Always
-# 定义之间的空行最多为一行
-MaxEmptyLinesToKeep: 1
-
-# 宏的换行符左对齐
-AlignEscapedNewlines: Left
-
-# switch语句的case缩进
-IndentCaseLabels: true
-
-# 表达式占多行时，操作符(|&)放在下一行，赋值符(=)尾随变量
-BreakBeforeBinaryOperators: NonAssignment
-
-# 数组(array vector) 初始化时，如果元素是struct，则struct的初始化元素左对齐
-AlignArrayOfStructures : Left
-
-# 声明函数时，如果形参一行放不下，则每个参数都占用一行
-BinPackParameters: false
-AllowAllParametersOfDeclarationOnNextLine: true
-
-# 调用函数时，如果实参一行放不下，则每个参数都占用一行
-BinPackArguments: false
-AllowAllArgumentsOnNextLine: true
-
-# 函数参数多行时，根据第一行对齐
-AlignAfterOpenBracket: BlockIndent
-
-# 对象使用大括号初始化时，对象名与大括号之间加一个空格
-SpaceBeforeCpp11BracedList: true
-# 对象使用大括号初始化时，开始和结束元素与括号之间加一个空格
+IndentWidth: 2
+ContinuationIndentWidth: 2
+AccessModifierOffset: -2
+ColumnLimit: 120
+BracedInitializerIndentWidth: 2
 Cpp11BracedListStyle: true
-
-# 简单的lambda放在一行
-AllowShortLambdasOnASingleLine : All
