@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 path_env = os.environ.get('PATH')
@@ -46,6 +47,6 @@ for subdir in list_subdirectories(src_path):
         spv_path = os.path.join(dst_path, pre + shader.replace(".", "_") + ".spv")
         # print("Shader", shader_path)
         # print("SPV", spv_path)
-        os.system(glslc + " " + shader_path + " -o " + spv_path)
+        subprocess.run([glslc, shader_path, "-o", spv_path], check=True)
 
 print("Shaders compilation completed")

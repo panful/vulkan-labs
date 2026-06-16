@@ -18,6 +18,7 @@ function(BuildTarget path)
             # 3rdparty
             target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/third_party)
             target_link_libraries(${target_name} PRIVATE glfw imgui project_warnings)
+
             target_compile_definitions(${target_name} PRIVATE "PROJECT_ASSETS_DIR=\"${PROJECT_ASSETS_DIR}/\"")
             if(ENABLE_CLANG_TIDY)
                 set_target_properties(${target_name} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")

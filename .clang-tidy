@@ -250,3 +250,4 @@ CheckOptions:
 ExtraArgs:
   - "-fexceptions"
   - "/EHsc"
+  - -DGLM_FORCE_CXX11

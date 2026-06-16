@@ -1,16 +1,19 @@
 
 #include <vulkan/vulkan.h>
 
-#define GLM_FORCE_RADIANS            // glm函数的参数使用弧度
+// clang-format off
+#define GLM_FORCE_RADIANS            // GLM 函数的参数使用弧度
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE  // 透视矩阵深度值范围 [-1, 1] => [0, 1]
+#define GLM_ENABLE_EXPERIMENTAL      // 允许使用 gtx 目录下的实验性扩展头文件
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
+// clang-format on
+
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <fstream>
-#include <glm/gtx/quaternion.hpp>
 #include <iostream>
 #include <numbers>
 #include <optional>

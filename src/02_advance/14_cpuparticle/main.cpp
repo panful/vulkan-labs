@@ -191,8 +191,10 @@ private:
 
     for (size_t i = 0; i < k_max_frames_in_flight; ++i) {
       vkDestroySemaphore(m_device, m_image_available_semaphores.at(i), nullptr);
-      vkDestroySemaphore(m_device, m_render_finished_semaphores.at(i), nullptr);
       vkDestroyFence(m_device, m_in_flight_fences.at(i), nullptr);
+    }
+    for (auto semaphore : m_render_finished_semaphores) {
+      vkDestroySemaphore(m_device, semaphore, nullptr);
     }
 
     vkDestroyCommandPool(m_device, m_command_pool, nullptr);
@@ -384,7 +386,7 @@ private:
     bool swap_chain_adequate{false};
     if (extensions_supported) {
       auto swap_chain_support = QuerySwapChainSupport(device);
-      swap_chain_adequate = !swap_chain_support.foramts.empty() & !swap_chain_support.presentModes.empty();
+      swap_chain_adequate = !swap_chain_support.foramts.empty() && !swap_chain_support.presentModes.empty();
     }
 
     return indices.IsComplete() && extensions_supported && swap_chain_adequate;
@@ -1123,7 +1125,7 @@ private:
     submit_info.pCommandBuffers = &m_command_buffers[image_index];  // 指定实际被提交执行的指令缓冲对象
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores =
-      &m_render_finished_semaphores.at(m_current_frame);  // 指定在指令缓冲执行结束后发出信号的信号量对象
+      &m_render_finished_semaphores.at(image_index);  // 指定在指令缓冲执行结束后发出信号的信号量对象
 
     // 提交指令缓冲给图形指令队列
     // 如果不等待上一次提交的指令结束执行，可能会导致内存泄漏
@@ -1136,8 +1138,7 @@ private:
     VkPresentInfoKHR present_info = {};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores =
-      &m_render_finished_semaphores.at(m_current_frame);  // 指定开始呈现操作需要等待的信号量
+    present_info.pWaitSemaphores = &m_render_finished_semaphores.at(image_index);  // 指定开始呈现操作需要等待的信号量
     present_info.swapchainCount = 1;
     present_info.pSwapchains = &m_swap_chain;   // 指定用于呈现图像的交换链
     present_info.pImageIndices = &image_index;  // 指定需要呈现的图像在交换链中的索引
@@ -1161,7 +1162,7 @@ private:
   /// @brief 创建同步对象，用于发出图像已经被获取可以开始渲染和渲染已经结束可以开始呈现的信号
   void CreateSyncObjects() {
     m_image_available_semaphores.resize(k_max_frames_in_flight);
-    m_render_finished_semaphores.resize(k_max_frames_in_flight);
+    m_render_finished_semaphores.resize(m_swap_chain_images.size());
     m_in_flight_fences.resize(k_max_frames_in_flight);
 
     VkSemaphoreCreateInfo semaphore_info = {};
@@ -1173,9 +1174,13 @@ private:
 
     for (size_t i = 0; i < k_max_frames_in_flight; ++i) {
       if (VK_SUCCESS != vkCreateSemaphore(m_device, &semaphore_info, nullptr, &m_image_available_semaphores.at(i)) ||
-          VK_SUCCESS != vkCreateSemaphore(m_device, &semaphore_info, nullptr, &m_render_finished_semaphores.at(i)) ||
           vkCreateFence(m_device, &fence_info, nullptr, &m_in_flight_fences.at(i))) {
         throw std::runtime_error("failed to create synchronization objects for a frame");
+      }
+    }
+    for (auto& semaphore : m_render_finished_semaphores) {
+      if (VK_SUCCESS != vkCreateSemaphore(m_device, &semaphore_info, nullptr, &semaphore)) {
+        throw std::runtime_error("failed to create render finished semaphore");
       }
     }
   }
