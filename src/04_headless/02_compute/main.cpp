@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <fstream>
 #include <iostream>
 #include <numbers>
@@ -18,16 +19,52 @@
 #include <stdexcept>
 #include <vector>
 
-constexpr size_t MAX_FRAMES_IN_FLIGHT {2};
+namespace lvk_tidy {
+template <typename T>
+[[nodiscard]] T& GetRequiredValue(std::optional<T>& value)
+{
+    if (!value.has_value())
+    {
+        throw std::bad_optional_access {};
+    }
+
+    return *value;
+}
+
+template <typename T>
+[[nodiscard]] const T& GetRequiredValue(const std::optional<T>& value)
+{
+    if (!value.has_value())
+    {
+        throw std::bad_optional_access {};
+    }
+
+    return *value;
+}
+
+template <typename T>
+[[nodiscard]] T LoadInstanceProcAddress(VkInstance instance, const char* name) noexcept
+{
+    return std::bit_cast<T>(vkGetInstanceProcAddr(instance, name));
+}
+
+template <typename T>
+[[nodiscard]] T LoadDeviceProcAddress(VkDevice device, const char* name) noexcept
+{
+    return std::bit_cast<T>(vkGetDeviceProcAddr(device, name));
+}
+} // namespace lvk_tidy
+
+constexpr size_t k_max_frames_in_flight {2};
 
 // 需要开启的校验层的名称
-const std::vector<const char*> g_validationLayers = {"VK_LAYER_KHRONOS_validation"};
+const std::vector<const char*> k_validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
 // 是否启用校验层
 #ifdef NDEBUG
-const bool g_enableValidationLayers = false;
+const bool k_enable_validation_layers = false;
 #else
-const bool g_enableValidationLayers = true;
+const bool k_enable_validation_layers = true;
 #endif // NDEBUG
 
 struct UBOCompute
@@ -86,8 +123,8 @@ private:
 
     void MainLoop()
     {
-        static int count = 10;
-        while (count-- > 0)
+        static int s_count = 10;
+        while (s_count-- > 0)
         {
             DrawFrame();
         }
@@ -99,38 +136,38 @@ private:
 
     void Cleanup() noexcept
     {
-        vkDestroyPipeline(m_device, m_computePipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_computePipelineLayout, nullptr);
+        vkDestroyPipeline(m_device, m_compute_pipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_compute_pipeline_layout, nullptr);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
 
-            vkDestroyBuffer(m_device, m_computeUboBuffers.at(i), nullptr);
-            vkFreeMemory(m_device, m_computeUboBuffersMemory.at(i), nullptr);
+            vkDestroyBuffer(m_device, m_compute_ubo_buffers.at(i), nullptr);
+            vkFreeMemory(m_device, m_compute_ubo_buffers_memory.at(i), nullptr);
 
-            vkDestroyBuffer(m_device, m_computeResultBuffers.at(i), nullptr);
-            vkFreeMemory(m_device, m_computeResultBuffersMemory.at(i), nullptr);
+            vkDestroyBuffer(m_device, m_compute_result_buffers.at(i), nullptr);
+            vkFreeMemory(m_device, m_compute_result_buffers_memory.at(i), nullptr);
         }
 
-        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-        vkDestroyDescriptorSetLayout(m_device, m_computeDescriptorSetLayout, nullptr);
+        vkDestroyDescriptorPool(m_device, m_descriptor_pool, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_compute_descriptor_set_layout, nullptr);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
-            vkDestroyFence(m_device, m_computeInFlightFences.at(i), nullptr);
+            vkDestroyFence(m_device, m_compute_in_flight_fences.at(i), nullptr);
         }
 
-        vkDestroyCommandPool(m_device, m_computeCommandPool, nullptr);
-        if (m_queueFamilyIndices.computeFamily != m_queueFamilyIndices.transferFamily)
+        vkDestroyCommandPool(m_device, m_compute_command_pool, nullptr);
+        if (m_queue_family_indices.computeFamily != m_queue_family_indices.transferFamily)
         {
-            vkDestroyCommandPool(m_device, m_transferCommandPool, nullptr);
+            vkDestroyCommandPool(m_device, m_transfer_command_pool, nullptr);
         }
 
         vkDestroyDevice(m_device, nullptr);
 
-        if (g_enableValidationLayers)
+        if (k_enable_validation_layers)
         {
-            DestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
+            DestroyDebugUtilsMessengerEXT(m_instance, m_debug_messenger, nullptr);
         }
 
         vkDestroyInstance(m_instance, nullptr);
@@ -139,15 +176,15 @@ private:
 private:
     void CreateComputeCommandBuffers()
     {
-        m_computeCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        m_compute_command_buffers.resize(k_max_frames_in_flight);
 
-        VkCommandBufferAllocateInfo allocInfo = {};
-        allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool                 = m_computeCommandPool;
-        allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 指定是主要还是辅助指令缓冲对象
-        allocInfo.commandBufferCount          = static_cast<uint32_t>(m_computeCommandBuffers.size());
+        VkCommandBufferAllocateInfo alloc_info = {};
+        alloc_info.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool                 = m_compute_command_pool;
+        alloc_info.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 指定是主要还是辅助指令缓冲对象
+        alloc_info.commandBufferCount          = static_cast<uint32_t>(m_compute_command_buffers.size());
 
-        if (VK_SUCCESS != vkAllocateCommandBuffers(m_device, &allocInfo, m_computeCommandBuffers.data()))
+        if (VK_SUCCESS != vkAllocateCommandBuffers(m_device, &alloc_info, m_compute_command_buffers.data()))
         {
             throw std::runtime_error("failed to allocate command buffers");
         }
@@ -156,51 +193,51 @@ private:
     void CreateComputeUniformBuffers()
     {
         // 输入
-        VkDeviceSize computeUboBufferSize = sizeof(UBOCompute);
+        VkDeviceSize compute_ubo_buffer_size = sizeof(UBOCompute);
 
-        m_computeUboBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        m_computeUboBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        m_computeUboBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+        m_compute_ubo_buffers.resize(k_max_frames_in_flight);
+        m_compute_ubo_buffers_memory.resize(k_max_frames_in_flight);
+        m_compute_ubo_buffers_mapped.resize(k_max_frames_in_flight);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
             CreateBuffer(
-                computeUboBufferSize,
+                compute_ubo_buffer_size,
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_computeUboBuffers.at(i),
-                m_computeUboBuffersMemory.at(i)
+                m_compute_ubo_buffers.at(i),
+                m_compute_ubo_buffers_memory.at(i)
             );
-            vkMapMemory(m_device, m_computeUboBuffersMemory.at(i), 0, computeUboBufferSize, 0, &m_computeUboBuffersMapped.at(i));
+            vkMapMemory(m_device, m_compute_ubo_buffers_memory.at(i), 0, compute_ubo_buffer_size, 0, &m_compute_ubo_buffers_mapped.at(i));
         }
 
         // 输出
-        VkDeviceSize indirectDrawBufferSize = sizeof(BUFCompute);
+        VkDeviceSize indirect_draw_buffer_size = sizeof(BUFCompute);
 
-        m_computeResultBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        m_computeResultBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        m_computeResultBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+        m_compute_result_buffers.resize(k_max_frames_in_flight);
+        m_compute_result_buffers_memory.resize(k_max_frames_in_flight);
+        m_compute_result_buffers_mapped.resize(k_max_frames_in_flight);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
             CreateBuffer(
-                indirectDrawBufferSize,
+                indirect_draw_buffer_size,
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                m_computeResultBuffers.at(i),
-                m_computeResultBuffersMemory.at(i)
+                m_compute_result_buffers.at(i),
+                m_compute_result_buffers_memory.at(i)
             );
-            vkMapMemory(m_device, m_computeResultBuffersMemory.at(i), 0, indirectDrawBufferSize, 0, &m_computeResultBuffersMapped.at(i));
+            vkMapMemory(m_device, m_compute_result_buffers_memory.at(i), 0, indirect_draw_buffer_size, 0, &m_compute_result_buffers_mapped.at(i));
         }
     }
 
-    void UpdateComputeUniformBuffer(size_t currentImage)
+    void UpdateComputeUniformBuffer(size_t current_image)
     {
-        static uint32_t n {0};
-        n++;
+        static uint32_t s_n {0};
+        s_n++;
 
-        UBOCompute ubo {n, n, n, n};
-        std::memcpy(m_computeUboBuffersMapped[currentImage], &ubo, sizeof(ubo));
+        UBOCompute ubo {s_n, s_n, s_n, s_n};
+        std::memcpy(m_compute_ubo_buffers_mapped[current_image], &ubo, sizeof(ubo));
     }
 
     void CreateComputeDescriptorSetLayout()
@@ -221,12 +258,12 @@ private:
 
         std::array bindings = {ubo, buf};
 
-        VkDescriptorSetLayoutCreateInfo layoutInfo = {};
-        layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount                    = static_cast<uint32_t>(bindings.size());
-        layoutInfo.pBindings                       = bindings.data();
+        VkDescriptorSetLayoutCreateInfo layout_info = {};
+        layout_info.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layout_info.bindingCount                    = static_cast<uint32_t>(bindings.size());
+        layout_info.pBindings                       = bindings.data();
 
-        if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_computeDescriptorSetLayout))
+        if (VK_SUCCESS != vkCreateDescriptorSetLayout(m_device, &layout_info, nullptr, &m_compute_descriptor_set_layout))
         {
             throw std::runtime_error("failed to create descriptor set layout");
         }
@@ -235,188 +272,195 @@ private:
     void CreateComputeDescriptorSets()
     {
         // 描述符布局对象的个数要匹配描述符集对象的个数
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_computeDescriptorSetLayout);
+        std::vector<VkDescriptorSetLayout> layouts(k_max_frames_in_flight, m_compute_descriptor_set_layout);
 
-        VkDescriptorSetAllocateInfo allocInfo {};
-        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool     = m_descriptorPool; // 指定分配描述符集对象的描述符池
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-        allocInfo.pSetLayouts        = layouts.data();
+        VkDescriptorSetAllocateInfo alloc_info {};
+        alloc_info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc_info.descriptorPool     = m_descriptor_pool; // 指定分配描述符集对象的描述符池
+        alloc_info.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+        alloc_info.pSetLayouts        = layouts.data();
 
         // 描述符集对象会在描述符池对象清除时自动被清除
         // 在这里给每一个交换链图像使用相同的描述符布局创建对应的描述符集
-        m_computeDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &allocInfo, m_computeDescriptorSets.data()))
+        m_compute_descriptor_sets.resize(k_max_frames_in_flight);
+        if (VK_SUCCESS != vkAllocateDescriptorSets(m_device, &alloc_info, m_compute_descriptor_sets.data()))
         {
             throw std::runtime_error("failed to allocate compute descriptor sets");
         }
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
-            VkDescriptorBufferInfo computeUboBufferInfo {};
-            computeUboBufferInfo.buffer = m_computeUboBuffers.at(i);
-            computeUboBufferInfo.offset = 0;
-            computeUboBufferInfo.range  = sizeof(UBOCompute);
+            VkDescriptorBufferInfo compute_ubo_buffer_info {};
+            compute_ubo_buffer_info.buffer = m_compute_ubo_buffers.at(i);
+            compute_ubo_buffer_info.offset = 0;
+            compute_ubo_buffer_info.range  = sizeof(UBOCompute);
 
-            VkDescriptorBufferInfo indirectDrawBufferInfo {};
-            indirectDrawBufferInfo.buffer = m_computeResultBuffers.at(i);
-            indirectDrawBufferInfo.offset = 0;
-            indirectDrawBufferInfo.range  = sizeof(BUFCompute);
+            VkDescriptorBufferInfo indirect_draw_buffer_info {};
+            indirect_draw_buffer_info.buffer = m_compute_result_buffers.at(i);
+            indirect_draw_buffer_info.offset = 0;
+            indirect_draw_buffer_info.range  = sizeof(BUFCompute);
 
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites {};
+            std::array<VkWriteDescriptorSet, 2> descriptor_writes {};
 
             // 计算着色器中的 Uniform
-            descriptorWrites.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites.at(0).dstSet           = m_computeDescriptorSets.at(i);
-            descriptorWrites.at(0).dstBinding       = 0;                                 // 绑定点
-            descriptorWrites.at(0).dstArrayElement  = 0;
-            descriptorWrites.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; // 对应着色器中的 Uniform
-            descriptorWrites.at(0).descriptorCount  = 1;
-            descriptorWrites.at(0).pBufferInfo      = &computeUboBufferInfo;             // 指定描述符引用的缓冲数据
-            descriptorWrites.at(0).pImageInfo       = nullptr;                           // 指定描述符引用的图像数据
-            descriptorWrites.at(0).pTexelBufferView = nullptr;                           // 指定描述符引用的缓冲视图
+            descriptor_writes.at(0).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes.at(0).dstSet           = m_compute_descriptor_sets.at(i);
+            descriptor_writes.at(0).dstBinding       = 0;                                 // 绑定点
+            descriptor_writes.at(0).dstArrayElement  = 0;
+            descriptor_writes.at(0).descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; // 对应着色器中的 Uniform
+            descriptor_writes.at(0).descriptorCount  = 1;
+            descriptor_writes.at(0).pBufferInfo      = &compute_ubo_buffer_info;          // 指定描述符引用的缓冲数据
+            descriptor_writes.at(0).pImageInfo       = nullptr;                           // 指定描述符引用的图像数据
+            descriptor_writes.at(0).pTexelBufferView = nullptr;                           // 指定描述符引用的缓冲视图
 
             // 计算着色器中的 Buffer
-            descriptorWrites.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites.at(1).dstSet           = m_computeDescriptorSets.at(i);
-            descriptorWrites.at(1).dstBinding       = 1;                                 // 绑定点
-            descriptorWrites.at(1).dstArrayElement  = 0;
-            descriptorWrites.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; // 对应着色器中的 buffer
-            descriptorWrites.at(1).descriptorCount  = 1;
-            descriptorWrites.at(1).pBufferInfo      = &indirectDrawBufferInfo;           // 指定描述符引用的缓冲数据
-            descriptorWrites.at(1).pImageInfo       = nullptr;                           // 指定描述符引用的图像数据
-            descriptorWrites.at(1).pTexelBufferView = nullptr;                           // 指定描述符引用的缓冲视图
+            descriptor_writes.at(1).sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptor_writes.at(1).dstSet           = m_compute_descriptor_sets.at(i);
+            descriptor_writes.at(1).dstBinding       = 1;                                 // 绑定点
+            descriptor_writes.at(1).dstArrayElement  = 0;
+            descriptor_writes.at(1).descriptorType   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; // 对应着色器中的 buffer
+            descriptor_writes.at(1).descriptorCount  = 1;
+            descriptor_writes.at(1).pBufferInfo      = &indirect_draw_buffer_info;        // 指定描述符引用的缓冲数据
+            descriptor_writes.at(1).pImageInfo       = nullptr;                           // 指定描述符引用的图像数据
+            descriptor_writes.at(1).pTexelBufferView = nullptr;                           // 指定描述符引用的缓冲视图
 
             // 更新描述符的配置
-            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(descriptor_writes.size()), descriptor_writes.data(), 0, nullptr);
         }
     }
 
     void CreateComputePipeline()
     {
-        auto computeShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/04_02_base_comp.spv");
+        auto compute_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/04_02_base_comp.spv");
 
-        VkShaderModule computeShaderModule = CreateShaderModule(computeShaderCode);
+        VkShaderModule compute_shader_module = CreateShaderModule(compute_shader_code);
 
-        VkPipelineShaderStageCreateInfo computeShaderStageInfo {};
-        computeShaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        computeShaderStageInfo.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
-        computeShaderStageInfo.module = computeShaderModule;
-        computeShaderStageInfo.pName  = "main";
+        VkPipelineShaderStageCreateInfo compute_shader_stage_info {};
+        compute_shader_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        compute_shader_stage_info.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+        compute_shader_stage_info.module = compute_shader_module;
+        compute_shader_stage_info.pName  = "main";
 
         // 计算着色器中的 uniform、buffer
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo {};
-        pipelineLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts    = &m_computeDescriptorSetLayout;
+        VkPipelineLayoutCreateInfo pipeline_layout_info {};
+        pipeline_layout_info.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipeline_layout_info.setLayoutCount = 1;
+        pipeline_layout_info.pSetLayouts    = &m_compute_descriptor_set_layout;
 
-        if (vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_computePipelineLayout) != VK_SUCCESS)
+        if (vkCreatePipelineLayout(m_device, &pipeline_layout_info, nullptr, &m_compute_pipeline_layout) != VK_SUCCESS)
         {
             throw std::runtime_error("failed to create compute pipeline layout!");
         }
 
-        VkComputePipelineCreateInfo pipelineInfo {};
-        pipelineInfo.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipelineInfo.layout = m_computePipelineLayout;
-        pipelineInfo.stage  = computeShaderStageInfo;
+        VkComputePipelineCreateInfo pipeline_info {};
+        pipeline_info.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipeline_info.layout = m_compute_pipeline_layout;
+        pipeline_info.stage  = compute_shader_stage_info;
 
-        if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_computePipeline) != VK_SUCCESS)
+        if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &m_compute_pipeline) != VK_SUCCESS)
         {
             throw std::runtime_error("failed to create compute pipeline!");
         }
 
-        vkDestroyShaderModule(m_device, computeShaderModule, nullptr);
+        vkDestroyShaderModule(m_device, compute_shader_module, nullptr);
     }
 
     void CreateComputeSyncObjects()
     {
-        m_computeInFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        m_compute_in_flight_fences.resize(k_max_frames_in_flight);
 
-        VkSemaphoreCreateInfo semaphoreInfo = {};
-        semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkSemaphoreCreateInfo semaphore_info = {};
+        semaphore_info.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-        VkFenceCreateInfo fenceInfo = {};
-        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fenceInfo.flags             = VK_FENCE_CREATE_SIGNALED_BIT; // 初始状态设置为已发出信号，避免 vkWaitForFences 一直等待
+        VkFenceCreateInfo fence_info = {};
+        fence_info.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_info.flags             = VK_FENCE_CREATE_SIGNALED_BIT; // 初始状态设置为已发出信号，避免 vkWaitForFences 一直等待
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+        for (size_t i = 0; i < k_max_frames_in_flight; ++i)
         {
-            if (VK_SUCCESS != vkCreateFence(m_device, &fenceInfo, nullptr, &m_computeInFlightFences.at(i)))
+            if (VK_SUCCESS != vkCreateFence(m_device, &fence_info, nullptr, &m_compute_in_flight_fences.at(i)))
             {
                 throw std::runtime_error("failed to create compute synchronization objects for a frame");
             }
         }
     }
 
-    void RecordComputeCommandBuffer(const VkCommandBuffer commandBuffer)
+    void RecordComputeCommandBuffer(VkCommandBuffer command_buffer)
     {
-        VkCommandBufferBeginInfo beginInfo = {};
-        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-        if (VK_SUCCESS != vkBeginCommandBuffer(commandBuffer, &beginInfo))
+        if (VK_SUCCESS != vkBeginCommandBuffer(command_buffer, &begin_info))
         {
             throw std::runtime_error("failed to begin recording compute command buffer");
         }
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
+        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_compute_pipeline);
         vkCmdBindDescriptorSets(
-            commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipelineLayout, 0, 1, &m_computeDescriptorSets.at(m_currentFrame), 0, 0
+            command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            m_compute_pipeline_layout,
+            0,
+            1,
+            &m_compute_descriptor_sets.at(m_current_frame),
+            0,
+            nullptr
         );
-        vkCmdDispatch(commandBuffer, 1, 1, 1);
+        vkCmdDispatch(command_buffer, 1, 1, 1);
 
-        vkEndCommandBuffer(commandBuffer);
+        vkEndCommandBuffer(command_buffer);
     }
 
     /// @brief 创建 Vulkan 实例
     void CreateInstance()
     {
-        if (g_enableValidationLayers && !CheckValidationLayerSupport())
+        if (k_enable_validation_layers && !CheckValidationLayerSupport())
         {
             throw std::runtime_error("validation layers requested, but not available");
         }
 
         // 应用程序的信息，这些信息可能会作为驱动程序的优化依据，让驱动做一些特殊的优化
-        VkApplicationInfo appInfo  = {};
-        appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pNext              = nullptr;
-        appInfo.pApplicationName   = "Hello Triangle";
-        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.pEngineName        = "No Engine";
-        appInfo.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.apiVersion         = VK_API_VERSION_1_0;
+        VkApplicationInfo app_info  = {};
+        app_info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        app_info.pNext              = nullptr;
+        app_info.pApplicationName   = "Hello Triangle";
+        app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        app_info.pEngineName        = "No Engine";
+        app_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+        app_info.apiVersion         = VK_API_VERSION_1_0;
 
         // 指定驱动程序需要使用的全局扩展和校验层，全局是指对整个应用程序都有效，而不仅仅是某一个设备
-        VkInstanceCreateInfo createInfo = {};
-        createInfo.sType                = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pApplicationInfo     = &appInfo;
+        VkInstanceCreateInfo create_info = {};
+        create_info.sType                = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        create_info.pApplicationInfo     = &app_info;
 
         // 指定需要的全局扩展
-        auto requiredExtensions            = GetRequiredExtensions();
-        createInfo.enabledExtensionCount   = static_cast<uint32_t>(requiredExtensions.size());
-        createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+        auto required_extensions            = GetRequiredExtensions();
+        create_info.enabledExtensionCount   = static_cast<uint32_t>(required_extensions.size());
+        create_info.ppEnabledExtensionNames = required_extensions.data();
 
         // 指定全局校验层
-        if (g_enableValidationLayers)
+        if (k_enable_validation_layers)
         {
-            createInfo.enabledLayerCount   = static_cast<uint32_t>(g_validationLayers.size());
-            createInfo.ppEnabledLayerNames = g_validationLayers.data();
+            create_info.enabledLayerCount   = static_cast<uint32_t>(k_validation_layers.size());
+            create_info.ppEnabledLayerNames = k_validation_layers.data();
 
-            VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
-            PopulateDebugMessengerCreateInfo(debugCreateInfo);
+            VkDebugUtilsMessengerCreateInfoEXT debug_create_info = {};
+            PopulateDebugMessengerCreateInfo(debug_create_info);
 
-            createInfo.pNext = &debugCreateInfo;
+            create_info.pNext = &debug_create_info;
         }
         else
         {
-            createInfo.enabledLayerCount = 0;
-            createInfo.pNext             = nullptr;
+            create_info.enabledLayerCount = 0;
+            create_info.pNext             = nullptr;
         }
 
         // 创建 Vulkan 实例，用来初始化 Vulkan 库
         // 1.包含创建信息的结构体指针
         // 2.自定义的分配器回调函数
         // 3.指向实例句柄存储位置的指针
-        if (VK_SUCCESS != vkCreateInstance(&createInfo, nullptr, &m_instance))
+        if (VK_SUCCESS != vkCreateInstance(&create_info, nullptr, &m_instance))
         {
             throw std::runtime_error("failed to create instance");
         }
@@ -427,32 +471,32 @@ private:
     bool CheckValidationLayerSupport() const noexcept
     {
         // 获取所有可用的校验层列表
-        uint32_t layerCount = 0;
-        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-        std::vector<VkLayerProperties> availableLayers(layerCount);
-        vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+        uint32_t layer_count = 0;
+        vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
+        std::vector<VkLayerProperties> available_layers(layer_count);
+        vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
         std::cout << "-------------------------------------------\n"
                   << "All available layers:\n";
-        for (const auto& layer : availableLayers)
+        for (const auto& layer : available_layers)
         {
-            std::cout << layer.layerName << '\n';
+            std::cout << static_cast<const char*>(layer.layerName) << '\n';
         }
 
         // 检查需要开启的校验层是否可以在所有可用的校验层列表中找到
-        for (const char* layerName : g_validationLayers)
+        for (const char* layer_name : k_validation_layers)
         {
-            bool layerFound {false};
+            bool layer_found {false};
 
-            for (const auto& layerProperties : availableLayers)
+            for (const auto& layer_properties : available_layers)
             {
-                if (0 == std::strcmp(layerName, layerProperties.layerName))
+                if (0 == std::strcmp(layer_name, static_cast<const char*>(layer_properties.layerName)))
                 {
-                    layerFound = true;
+                    layer_found = true;
                     break;
                 }
             }
 
-            if (!layerFound)
+            if (!layer_found)
             {
                 return false;
             }
@@ -466,40 +510,40 @@ private:
     std::vector<const char*> GetRequiredExtensions() const noexcept
     {
         // 获取 Vulkan 支持的所有扩展
-        uint32_t extensionCount = 0;
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-        std::vector<VkExtensionProperties> extensions(extensionCount);
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+        uint32_t extension_count = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+        std::vector<VkExtensionProperties> extensions(extension_count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
         std::cout << "-------------------------------------------\n"
                   << "All supported extensions:\n";
         for (const auto& e : extensions)
         {
-            std::cout << e.extensionName << '\n';
+            std::cout << static_cast<const char*>(e.extensionName) << '\n';
         }
 
         // 将需要开启的所有扩展添加到列表并返回
-        std::vector<const char*> requiredExtensions;
-        if (g_enableValidationLayers)
+        std::vector<const char*> required_extensions;
+        if (k_enable_validation_layers)
         {
             // 根据需要开启调试报告相关的扩展
-            requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
 
-        return requiredExtensions;
+        return required_extensions;
     }
 
     /// @brief 设置回调函数来接受调试信息
     void SetupDebugCallback()
     {
-        if (!g_enableValidationLayers)
+        if (!k_enable_validation_layers)
         {
             return;
         }
 
-        VkDebugUtilsMessengerCreateInfoEXT createInfo = {};
-        PopulateDebugMessengerCreateInfo(createInfo);
+        VkDebugUtilsMessengerCreateInfoEXT create_info = {};
+        PopulateDebugMessengerCreateInfo(create_info);
 
-        if (VK_SUCCESS != CreateDebugUtilsMessengerEXT(m_instance, &createInfo, nullptr, &m_debugMessenger))
+        if (VK_SUCCESS != CreateDebugUtilsMessengerEXT(m_instance, &create_info, nullptr, &m_debug_messenger))
         {
             throw std::runtime_error("failed to set up debug callback");
         }
@@ -510,27 +554,27 @@ private:
     void PickPhysicalDevice()
     {
         // 获取支持 Vulkan 的显卡数量
-        uint32_t deviceCount {0};
-        vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+        uint32_t device_count {0};
+        vkEnumeratePhysicalDevices(m_instance, &device_count, nullptr);
 
-        if (0 == deviceCount)
+        if (0 == device_count)
         {
             throw std::runtime_error("failed to find GPUs with Vulkan support");
         }
 
-        std::vector<VkPhysicalDevice> devices(deviceCount);
-        vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
+        std::vector<VkPhysicalDevice> devices(device_count);
+        vkEnumeratePhysicalDevices(m_instance, &device_count, devices.data());
 
         for (const auto& device : devices)
         {
             if (IsDeviceSuitable(device))
             {
-                m_physicalDevice = device;
+                m_physical_device = device;
                 break;
             }
         }
 
-        if (nullptr == m_physicalDevice)
+        if (nullptr == m_physical_device)
         {
             throw std::runtime_error("failed to find a suitable GPU");
         }
@@ -539,7 +583,7 @@ private:
     /// @brief 检查显卡是否满足需求
     /// @param device
     /// @return
-    bool IsDeviceSuitable(const VkPhysicalDevice device) noexcept
+    bool IsDeviceSuitable(VkPhysicalDevice device) noexcept
     {
         // 获取基本的设置属性，name、type以及Vulkan版本等等
         // VkPhysicalDeviceProperties deviceProperties;
@@ -549,29 +593,29 @@ private:
         // VkPhysicalDeviceFeatures deviceFeatures;
         // vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-        m_queueFamilyIndices     = FindQueueFamilies(device);
-        auto extensionsSupported = CheckDeviceExtensionSupported(device);
+        m_queue_family_indices    = FindQueueFamilies(device);
+        auto extensions_supported = CheckDeviceExtensionSupported(device);
 
-        return m_queueFamilyIndices.IsComplete() && extensionsSupported;
+        return m_queue_family_indices.IsComplete() && extensions_supported;
     }
 
     /// @brief 查找满足需求的队列族
     /// @details 不同的队列族支持不同的类型的指令，例如计算、内存传输、绘图等指令
     /// @param device
     /// @return
-    QueueFamilyIndices FindQueueFamilies(const VkPhysicalDevice device) const noexcept
+    QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device) const noexcept
     {
         // 获取物理设备支持的队列族列表
-        uint32_t queueFamilyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        uint32_t queue_family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
 
         // 查找专用队列
-        auto getDedicatedQueue = [&queueFamilies](VkQueueFlagBits queueFlagBits) -> std::optional<uint32_t> {
-            for (size_t i = 0; i < queueFamilies.size(); ++i)
+        auto get_dedicated_queue = [&queue_families](VkQueueFlagBits queue_flag_bits) -> std::optional<uint32_t> {
+            for (size_t i = 0; i < queue_families.size(); ++i)
             {
-                if (queueFlagBits == queueFamilies.at(i).queueFlags)
+                if (queue_flag_bits == queue_families.at(i).queueFlags)
                 {
                     return static_cast<uint32_t>(i);
                 }
@@ -581,32 +625,32 @@ private:
         };
 
         QueueFamilyIndices indices {};
-        indices.graphicsFamily = getDedicatedQueue(VK_QUEUE_GRAPHICS_BIT);
-        indices.computeFamily  = getDedicatedQueue(VK_QUEUE_COMPUTE_BIT);
-        indices.transferFamily = getDedicatedQueue(VK_QUEUE_TRANSFER_BIT);
+        indices.graphicsFamily = get_dedicated_queue(VK_QUEUE_GRAPHICS_BIT);
+        indices.computeFamily  = get_dedicated_queue(VK_QUEUE_COMPUTE_BIT);
+        indices.transferFamily = get_dedicated_queue(VK_QUEUE_TRANSFER_BIT);
 
-        auto getSupportQueue = [&queueFamilies](VkQueueFlagBits queueFlagBits, size_t index) -> std::optional<uint32_t> {
-            if (0 != (queueFlagBits & queueFamilies.at(index).queueFlags))
+        auto get_support_queue = [&queue_families](VkQueueFlagBits queue_flag_bits, size_t index) -> std::optional<uint32_t> {
+            if (0 != (queue_flag_bits & queue_families.at(index).queueFlags))
             {
                 return static_cast<uint32_t>(index);
             }
             return std::nullopt;
         };
 
-        for (size_t i = 0; i < queueFamilies.size(); ++i)
+        for (size_t i = 0; i < queue_families.size(); ++i)
         {
             // 如果没有专用队列，则使用第一个支持指定类型的队列
             if (!indices.graphicsFamily.has_value())
             {
-                indices.graphicsFamily = getSupportQueue(VK_QUEUE_GRAPHICS_BIT, i);
+                indices.graphicsFamily = get_support_queue(VK_QUEUE_GRAPHICS_BIT, i);
             }
             if (!indices.computeFamily.has_value())
             {
-                indices.computeFamily = getSupportQueue(VK_QUEUE_COMPUTE_BIT, i);
+                indices.computeFamily = get_support_queue(VK_QUEUE_COMPUTE_BIT, i);
             }
             if (!indices.transferFamily.has_value())
             {
-                indices.transferFamily = getSupportQueue(VK_QUEUE_TRANSFER_BIT, i);
+                indices.transferFamily = get_support_queue(VK_QUEUE_TRANSFER_BIT, i);
             }
 
             if (indices.IsComplete())
@@ -621,72 +665,74 @@ private:
     /// @brief 创建逻辑设备作为和物理设备交互的接口
     void CreateLogicalDevice()
     {
-        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies {m_queueFamilyIndices.computeFamily.value(), m_queueFamilyIndices.transferFamily.value()};
+        std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+        std::set<uint32_t> unique_queue_families {
+            lvk_tidy::GetRequiredValue(m_queue_family_indices.computeFamily), lvk_tidy::GetRequiredValue(m_queue_family_indices.transferFamily)
+        };
 
         // 控制指令缓存执行顺序的优先级，即使只有一个队列也要显示指定优先级，范围：[0.0, 1.0]
-        float queuePriority {1.f};
-        for (auto queueFamily : uniqueQueueFamilies)
+        float queue_priority {1.F};
+        for (auto queue_family : unique_queue_families)
         {
             // 描述队列簇中预要申请使用的队列数量
             // 当前可用的驱动程序所提供的队列簇只允许创建少量的队列，并且很多时候没有必要创建多个队列
             // 因为可以在多个线程上创建所有命令缓冲区，然后在主线程一次性的以较低开销的调用提交队列
-            VkDeviceQueueCreateInfo queueCreateInfo {};
-            queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = queueFamily;
-            queueCreateInfo.queueCount       = 1;
-            queueCreateInfo.pQueuePriorities = &queuePriority;
-            queueCreateInfos.push_back(queueCreateInfo);
+            VkDeviceQueueCreateInfo queue_create_info {};
+            queue_create_info.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_info.queueFamilyIndex = queue_family;
+            queue_create_info.queueCount       = 1;
+            queue_create_info.pQueuePriorities = &queue_priority;
+            queue_create_infos.push_back(queue_create_info);
         }
 
         // 指定应用程序使用的设备特性（例如几何着色器）
-        VkPhysicalDeviceFeatures deviceFeatures = {};
+        VkPhysicalDeviceFeatures device_features = {};
 
-        VkDeviceCreateInfo createInfo   = {};
-        createInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
-        createInfo.pQueueCreateInfos    = queueCreateInfos.data();
-        createInfo.pEnabledFeatures     = &deviceFeatures;
+        VkDeviceCreateInfo create_info   = {};
+        create_info.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
+        create_info.pQueueCreateInfos    = queue_create_infos.data();
+        create_info.pEnabledFeatures     = &device_features;
 
         // 根据需要对设备和 Vulkan 实例使用相同的校验层
-        if (g_enableValidationLayers)
+        if (k_enable_validation_layers)
         {
-            createInfo.enabledLayerCount   = static_cast<uint32_t>(g_validationLayers.size());
-            createInfo.ppEnabledLayerNames = g_validationLayers.data();
+            create_info.enabledLayerCount   = static_cast<uint32_t>(k_validation_layers.size());
+            create_info.ppEnabledLayerNames = k_validation_layers.data();
         }
         else
         {
-            createInfo.enabledLayerCount = 0;
+            create_info.enabledLayerCount = 0;
         }
 
         // 创建逻辑设备
-        if (VK_SUCCESS != vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device))
+        if (VK_SUCCESS != vkCreateDevice(m_physical_device, &create_info, nullptr, &m_device))
         {
             throw std::runtime_error("failed to create logical device");
         }
 
-        vkGetDeviceQueue(m_device, m_queueFamilyIndices.computeFamily.value(), 0, &m_computeQueue);
-        vkGetDeviceQueue(m_device, m_queueFamilyIndices.transferFamily.value(), 0, &m_transferQueue);
+        vkGetDeviceQueue(m_device, lvk_tidy::GetRequiredValue(m_queue_family_indices.computeFamily), 0, &m_compute_queue);
+        vkGetDeviceQueue(m_device, lvk_tidy::GetRequiredValue(m_queue_family_indices.transferFamily), 0, &m_transfer_queue);
     }
 
     /// @brief 检测所需的扩展是否支持
     /// @param device
     /// @return
-    bool CheckDeviceExtensionSupported(const VkPhysicalDevice device) const noexcept
+    bool CheckDeviceExtensionSupported(VkPhysicalDevice device) const noexcept
     {
-        uint32_t extensionCount {0};
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+        uint32_t extension_count {0};
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, nullptr);
+        std::vector<VkExtensionProperties> available_extensions(extension_count);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, available_extensions.data());
 
-        std::set<std::string> requiredExtensions; // 暂时不需要任何扩展
-        for (const auto& extension : availableExtensions)
+        std::set<std::string> required_extensions; // 暂时不需要任何扩展
+        for (const auto& extension : available_extensions)
         {
-            requiredExtensions.erase(extension.extensionName);
+            required_extensions.erase(static_cast<const char*>(extension.extensionName));
         }
 
         // 如果为空，则支持
-        return requiredExtensions.empty();
+        return required_extensions.empty();
     }
 
     /// @brief 使用着色器字节码数组创建 VkShaderModule 对象
@@ -694,18 +740,18 @@ private:
     /// @return
     VkShaderModule CreateShaderModule(const std::vector<char>& code) const
     {
-        VkShaderModuleCreateInfo createInfo = {};
-        createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize                 = code.size();
-        createInfo.pCode                    = reinterpret_cast<const uint32_t*>(code.data());
+        VkShaderModuleCreateInfo create_info = {};
+        create_info.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        create_info.codeSize                 = code.size();
+        create_info.pCode                    = reinterpret_cast<const uint32_t*>(code.data());
 
-        VkShaderModule shaderModule;
-        if (VK_SUCCESS != vkCreateShaderModule(m_device, &createInfo, nullptr, &shaderModule))
+        VkShaderModule shader_module = nullptr;
+        if (VK_SUCCESS != vkCreateShaderModule(m_device, &create_info, nullptr, &shader_module))
         {
             throw std::runtime_error("failed to create shader module");
         }
 
-        return shaderModule;
+        return shader_module;
     }
 
     /// @brief 创建指令池，用于管理指令缓冲对象使用的内存，并负责指令缓冲对象的分配
@@ -715,72 +761,72 @@ private:
         // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT 允许从Pool中分配的任何CommandBuffer被单独重置到inital状态
         // 没有设置这个flag则不能使用 vkResetCommandBuffer
         // VK_COMMAND_POOL_CREATE_PROTECTED_BIT 指定从Pool中分配的CommandBuffer是受保护的CommandBuffer
-        VkCommandPoolCreateInfo poolInfo = {};
-        poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex        = m_queueFamilyIndices.computeFamily.value();
+        VkCommandPoolCreateInfo pool_info = {};
+        pool_info.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_info.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        pool_info.queueFamilyIndex        = lvk_tidy::GetRequiredValue(m_queue_family_indices.computeFamily);
 
-        if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_computeCommandPool))
+        if (VK_SUCCESS != vkCreateCommandPool(m_device, &pool_info, nullptr, &m_compute_command_pool))
         {
             throw std::runtime_error("failed to create command pool");
         }
 
-        if (m_queueFamilyIndices.computeFamily != m_queueFamilyIndices.transferFamily)
+        if (m_queue_family_indices.computeFamily != m_queue_family_indices.transferFamily)
         {
-            poolInfo.queueFamilyIndex = m_queueFamilyIndices.transferFamily.value();
-            if (VK_SUCCESS != vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_transferCommandPool))
+            pool_info.queueFamilyIndex = lvk_tidy::GetRequiredValue(m_queue_family_indices.transferFamily);
+            if (VK_SUCCESS != vkCreateCommandPool(m_device, &pool_info, nullptr, &m_transfer_command_pool))
             {
                 throw std::runtime_error("failed to create command pool");
             }
         }
         else
         {
-            m_transferCommandPool = m_computeCommandPool;
+            m_transfer_command_pool = m_compute_command_pool;
         }
     }
 
     void DrawFrame()
     {
-        UpdateComputeUniformBuffer(m_currentFrame);
-        vkWaitForFences(m_device, 1, &m_computeInFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
-        vkResetFences(m_device, 1, &m_computeInFlightFences[m_currentFrame]);
+        UpdateComputeUniformBuffer(m_current_frame);
+        vkWaitForFences(m_device, 1, &m_compute_in_flight_fences[m_current_frame], VK_TRUE, UINT64_MAX);
+        vkResetFences(m_device, 1, &m_compute_in_flight_fences[m_current_frame]);
 
         // 回读计算结果
-        auto result = reinterpret_cast<BUFCompute*>(m_computeResultBuffersMapped.at(m_currentFrame));
+        auto result = reinterpret_cast<BUFCompute*>(m_compute_result_buffers_mapped.at(m_current_frame));
         std::cout << result->result << '\n';
 
-        vkResetCommandBuffer(m_computeCommandBuffers[m_currentFrame], /*VkCommandBufferResetFlagBits*/ 0);
-        RecordComputeCommandBuffer(m_computeCommandBuffers[m_currentFrame]);
+        vkResetCommandBuffer(m_compute_command_buffers[m_current_frame], /*VkCommandBufferResetFlagBits*/ 0);
+        RecordComputeCommandBuffer(m_compute_command_buffers[m_current_frame]);
 
-        VkSubmitInfo submitInfo {};
-        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers    = &m_computeCommandBuffers[m_currentFrame];
+        VkSubmitInfo submit_info {};
+        submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers    = &m_compute_command_buffers[m_current_frame];
 
-        if (vkQueueSubmit(m_computeQueue, 1, &submitInfo, m_computeInFlightFences[m_currentFrame]) != VK_SUCCESS)
+        if (vkQueueSubmit(m_compute_queue, 1, &submit_info, m_compute_in_flight_fences[m_current_frame]) != VK_SUCCESS)
         {
             throw std::runtime_error("failed to submit compute command buffer!");
         };
 
         // 更新当前帧索引
-        m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+        m_current_frame = (m_current_frame + 1) % k_max_frames_in_flight;
     }
 
     /// @brief 设置调试扩展信息
     /// @param createInfo
-    void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) const noexcept
+    void PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& create_info) const noexcept
     {
-        createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         // 设置回调函数处理的消息级别
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+        create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         // 设置回调函数处理的消息类型
-        createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+        create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         // 设置回调函数
-        createInfo.pfnUserCallback = DebugCallback;
+        create_info.pfnUserCallback = DebugCallback;
         // 设置用户自定义数据，是可选的
-        createInfo.pUserData = nullptr;
+        create_info.pUserData = nullptr;
     }
 
     /// @brief 创建指定类型的缓冲
@@ -791,16 +837,16 @@ private:
     /// @param buffer
     /// @param bufferMemory
     void
-    CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const
+    CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& buffer_memory) const
     {
-        VkBufferCreateInfo bufferInfo = {};
-        bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size               = size;                      // 缓冲的字节大小
-        bufferInfo.usage              = usage;                     // 缓冲中的数据使用目的，可以使用位或来指定多个目的
-        bufferInfo.sharingMode        = VK_SHARING_MODE_EXCLUSIVE; // 缓冲可以被特定的队列族所拥有，也可以在多个队列族共享
-        bufferInfo.flags              = 0;                         // 配置缓冲的内存稀疏程度，0表示使用默认值
+        VkBufferCreateInfo buffer_info = {};
+        buffer_info.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_info.size               = size;                      // 缓冲的字节大小
+        buffer_info.usage              = usage;                     // 缓冲中的数据使用目的，可以使用位或来指定多个目的
+        buffer_info.sharingMode        = VK_SHARING_MODE_EXCLUSIVE; // 缓冲可以被特定的队列族所拥有，也可以在多个队列族共享
+        buffer_info.flags              = 0;                         // 配置缓冲的内存稀疏程度，0表示使用默认值
 
-        if (VK_SUCCESS != vkCreateBuffer(m_device, &bufferInfo, nullptr, &buffer))
+        if (VK_SUCCESS != vkCreateBuffer(m_device, &buffer_info, nullptr, &buffer))
         {
             throw std::runtime_error("failed to create vertex buffer");
         }
@@ -809,61 +855,61 @@ private:
         // size: 缓冲需要的内存的字节大小，可能和bufferInfo.size的值不同
         // alignment: 缓冲在实际被分配的内存中的开始位置，依赖于bufferInfo的usage和flags
         // memoryTypeBits: 指示适合该缓冲使用的内存类型的位域
-        VkMemoryRequirements memRequirements {};
-        vkGetBufferMemoryRequirements(m_device, buffer, &memRequirements);
+        VkMemoryRequirements mem_requirements {};
+        vkGetBufferMemoryRequirements(m_device, buffer, &mem_requirements);
 
-        VkMemoryAllocateInfo allocInfo = {};
-        allocInfo.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize       = memRequirements.size;
-        allocInfo.memoryTypeIndex      = FindMemoryType(memRequirements.memoryTypeBits, properties);
+        VkMemoryAllocateInfo alloc_info = {};
+        alloc_info.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize       = mem_requirements.size;
+        alloc_info.memoryTypeIndex      = FindMemoryType(mem_requirements.memoryTypeBits, properties);
 
-        if (VK_SUCCESS != vkAllocateMemory(m_device, &allocInfo, nullptr, &bufferMemory))
+        if (VK_SUCCESS != vkAllocateMemory(m_device, &alloc_info, nullptr, &buffer_memory))
         {
             throw std::runtime_error("failed to allocate buffer memory");
         }
 
         // 4. 偏移值，需要满足能够被 memRequirements.alighment 整除
-        vkBindBufferMemory(m_device, buffer, bufferMemory, 0);
+        vkBindBufferMemory(m_device, buffer, buffer_memory, 0);
     }
 
     /// @brief 在缓冲之间复制数据
     /// @param srcBuffer
     /// @param dstBuffer
     /// @param size
-    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const noexcept
+    void CopyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) const noexcept
     {
-        VkCommandBufferAllocateInfo allocInfo = {};
-        allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandPool                 = m_transferCommandPool;
-        allocInfo.commandBufferCount          = 1;
+        VkCommandBufferAllocateInfo alloc_info = {};
+        alloc_info.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool                 = m_transfer_command_pool;
+        alloc_info.commandBufferCount          = 1;
 
-        VkCommandBuffer commandBuffer {};
-        vkAllocateCommandBuffers(m_device, &allocInfo, &commandBuffer);
+        VkCommandBuffer command_buffer {};
+        vkAllocateCommandBuffers(m_device, &alloc_info, &command_buffer);
 
-        VkCommandBufferBeginInfo beginInfo = {};
-        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // 指定如何使用这个指令缓冲
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // 指定如何使用这个指令缓冲
 
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
-        VkBufferCopy copyRegion = {};
-        copyRegion.srcOffset    = 0;
-        copyRegion.dstOffset    = 0;
-        copyRegion.size         = size;
-        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-        vkEndCommandBuffer(commandBuffer);
+        vkBeginCommandBuffer(command_buffer, &begin_info);
+        VkBufferCopy copy_region = {};
+        copy_region.srcOffset    = 0;
+        copy_region.dstOffset    = 0;
+        copy_region.size         = size;
+        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
+        vkEndCommandBuffer(command_buffer);
 
-        VkSubmitInfo submitInfo       = {};
-        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers    = &commandBuffer;
+        VkSubmitInfo submit_info       = {};
+        submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers    = &command_buffer;
 
         // 提交到内存传输指令队列执行内存传输
-        vkQueueSubmit(m_transferQueue, 1, &submitInfo, nullptr);
+        vkQueueSubmit(m_transfer_queue, 1, &submit_info, nullptr);
         // 等待传输操作完成，也可以使用栅栏，栅栏可以同步多个不同的内存传输操作，给驱动程序的优化空间也更大
-        vkQueueWaitIdle(m_transferQueue);
+        vkQueueWaitIdle(m_transfer_queue);
 
-        vkFreeCommandBuffers(m_device, m_transferCommandPool, 1, &commandBuffer);
+        vkFreeCommandBuffers(m_device, m_transfer_command_pool, 1, &command_buffer);
     }
 
     /// @brief 查找最合适的内存类型
@@ -871,16 +917,16 @@ private:
     /// @param typeFilter 指定需要的内存类型的位域
     /// @param properties
     /// @return
-    uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const
+    uint32_t FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) const
     {
         // 查找物理设备可用的内存类型
         // memoryHeaps 内存来源，比如显存以及显存用尽后的位与主存中的交换空间
-        VkPhysicalDeviceMemoryProperties memProperties {};
-        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
+        VkPhysicalDeviceMemoryProperties mem_properties {};
+        vkGetPhysicalDeviceMemoryProperties(m_physical_device, &mem_properties);
 
-        for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i)
+        for (uint32_t i = 0; i < mem_properties.memoryTypeCount; ++i)
         {
-            if (typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+            if (type_filter & (1 << i) && (mem_properties.memoryTypes[i].propertyFlags & properties) == properties)
             {
                 return i;
             }
@@ -892,21 +938,21 @@ private:
     /// @brief 创建描述符池，描述符集需要通过描述符池来创建
     void CreateDescriptorPool()
     {
-        std::array<VkDescriptorPoolSize, 2> poolSizes {};
+        std::array<VkDescriptorPoolSize, 2> pool_sizes {};
 
-        poolSizes.at(0).type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes.at(0).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        poolSizes.at(1).type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSizes.at(1).descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        pool_sizes.at(0).type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        pool_sizes.at(0).descriptorCount = static_cast<uint32_t>(k_max_frames_in_flight);
+        pool_sizes.at(1).type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_sizes.at(1).descriptorCount = static_cast<uint32_t>(k_max_frames_in_flight);
 
-        VkDescriptorPoolCreateInfo poolInfo {};
-        poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-        poolInfo.pPoolSizes    = poolSizes.data();
-        poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        poolInfo.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
+        VkDescriptorPoolCreateInfo pool_info {};
+        pool_info.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+        pool_info.pPoolSizes    = pool_sizes.data();
+        pool_info.maxSets       = static_cast<uint32_t>(k_max_frames_in_flight);
+        pool_info.flags         = 0; // 可以用来设置独立的描述符集是否可以被清除掉，此处使用默认值
 
-        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool))
+        if (VK_SUCCESS != vkCreateDescriptorPool(m_device, &pool_info, nullptr, &m_descriptor_pool))
         {
             throw std::runtime_error("failed to create descriptor pool");
         }
@@ -914,20 +960,20 @@ private:
 
 private:
     /// @brief 接受调试信息的回调函数
-    /// @param messageSeverity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
-    /// @param messageType 发生了与规范和性能无关的事件、出现了违反规范的错误、进行了可能影响 Vulkan 性能的行为
-    /// @param pCallbackData 包含了调试信息的字符串、存储有和消息相关的 Vulkan 对象句柄的数组、数组中的对象个数
-    /// @param pUserData 指向了设置回调函数时，传递的数据指针
+    /// @param message_severity 消息的级别：诊断、资源创建、警告、不合法或可能造成崩溃的操作
+    /// @param message_type 发生了与规范和性能无关的事件、出现了违反规范的错误、进行了可能影响 Vulkan 性能的行为
+    /// @param callback_data 包含了调试信息的字符串、存储有和消息相关的 Vulkan 对象句柄的数组、数组中的对象个数
+    /// @param user_data 指向了设置回调函数时，传递的数据指针
     /// @return 引发校验层处理的 Vulkan API 调用是否中断，通常只在测试校验层本身时会返回true，其余都应该返回 VK_FALSE
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData
+        [[maybe_unused]] VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+        [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT message_type,
+        const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+        [[maybe_unused]] void* user_data
     ) noexcept
     {
         std::clog << "===========================================\n"
-                  << "Debug::validation layer: " << pCallbackData->pMessage << '\n';
+                  << "Debug::validation layer: " << callback_data->pMessage << '\n';
 
         return VK_FALSE;
     }
@@ -940,22 +986,20 @@ private:
     /// @return
     static VkResult CreateDebugUtilsMessengerEXT(
         VkInstance instance,
-        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-        const VkAllocationCallbacks* pAllocator,
-        VkDebugUtilsMessengerEXT* pCallback
+        const VkDebugUtilsMessengerCreateInfoEXT* p_create_info,
+        const VkAllocationCallbacks* p_allocator,
+        VkDebugUtilsMessengerEXT* p_callback
     ) noexcept
     {
         // vkCreateDebugUtilsMessengerEXT是一个扩展函数，不会被 Vulkan 库自动加载，所以需要手动加载
-        auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+        auto func = lvk_tidy::LoadInstanceProcAddress<PFN_vkCreateDebugUtilsMessengerEXT>(instance, "vkCreateDebugUtilsMessengerEXT");
 
         if (nullptr != func)
         {
-            return func(instance, pCreateInfo, pAllocator, pCallback);
+            return func(instance, p_create_info, p_allocator, p_callback);
         }
-        else
-        {
-            return VK_ERROR_EXTENSION_NOT_PRESENT;
-        }
+
+        return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 
     /// @brief 代理函数，用来加载 Vulkan 扩展函数 vkDestroyDebugUtilsMessengerEXT
@@ -963,62 +1007,62 @@ private:
     /// @param callback
     /// @param pAllocator
     static void
-    DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* pAllocator) noexcept
+    DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* p_allocator) noexcept
     {
-        auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+        auto func = lvk_tidy::LoadInstanceProcAddress<PFN_vkDestroyDebugUtilsMessengerEXT>(instance, "vkDestroyDebugUtilsMessengerEXT");
 
         if (nullptr != func)
         {
-            func(instance, callback, pAllocator);
+            func(instance, callback, p_allocator);
         }
     }
 
     /// @brief 读取二进制着色器文件
     /// @param fileName
     /// @return
-    static std::vector<char> ReadFile(const std::string& fileName)
+    static std::vector<char> ReadFile(const std::string& file_name)
     {
-        std::ifstream file(fileName, std::ios::ate | std::ios::binary);
+        std::ifstream file(file_name, std::ios::ate | std::ios::binary);
         if (!file.is_open())
         {
-            throw std::runtime_error("failed to open file: " + fileName);
+            throw std::runtime_error("failed to open file: " + file_name);
         }
 
-        size_t fileSize = static_cast<size_t>(file.tellg());
-        std::vector<char> buffer(fileSize);
+        size_t file_size = static_cast<size_t>(file.tellg());
+        std::vector<char> buffer(file_size);
         file.seekg(0);
-        file.read(buffer.data(), fileSize);
+        file.read(buffer.data(), static_cast<std::streamsize>(file_size));
         file.close();
         return buffer;
     }
 
 private:
     VkInstance m_instance {nullptr};
-    VkDebugUtilsMessengerEXT m_debugMessenger {nullptr};
-    VkPhysicalDevice m_physicalDevice {nullptr};
+    VkDebugUtilsMessengerEXT m_debug_messenger {nullptr};
+    VkPhysicalDevice m_physical_device {nullptr};
     VkDevice m_device {nullptr};
 
-    size_t m_currentFrame {0};
-    VkDescriptorPool m_descriptorPool {nullptr};
-    QueueFamilyIndices m_queueFamilyIndices {};
-    VkCommandPool m_computeCommandPool {nullptr};
-    VkCommandPool m_transferCommandPool {nullptr};
-    VkQueue m_transferQueue {nullptr}; // 传输队列
-    VkQueue m_computeQueue {nullptr};  // 计算队列
+    size_t m_current_frame {0};
+    VkDescriptorPool m_descriptor_pool {nullptr};
+    QueueFamilyIndices m_queue_family_indices {};
+    VkCommandPool m_compute_command_pool {nullptr};
+    VkCommandPool m_transfer_command_pool {nullptr};
+    VkQueue m_transfer_queue {nullptr}; // 传输队列
+    VkQueue m_compute_queue {nullptr};  // 计算队列
 
-    VkPipeline m_computePipeline {nullptr};
-    VkPipelineLayout m_computePipelineLayout {nullptr};
-    std::vector<VkCommandBuffer> m_computeCommandBuffers {};
-    VkDescriptorSetLayout m_computeDescriptorSetLayout {nullptr};
-    std::vector<VkDescriptorSet> m_computeDescriptorSets {};
-    std::vector<VkFence> m_computeInFlightFences {};
+    VkPipeline m_compute_pipeline {nullptr};
+    VkPipelineLayout m_compute_pipeline_layout {nullptr};
+    std::vector<VkCommandBuffer> m_compute_command_buffers {};
+    VkDescriptorSetLayout m_compute_descriptor_set_layout {nullptr};
+    std::vector<VkDescriptorSet> m_compute_descriptor_sets {};
+    std::vector<VkFence> m_compute_in_flight_fences {};
 
-    std::vector<VkBuffer> m_computeUboBuffers {};
-    std::vector<VkDeviceMemory> m_computeUboBuffersMemory {};
-    std::vector<void*> m_computeUboBuffersMapped {};
-    std::vector<VkBuffer> m_computeResultBuffers {};
-    std::vector<VkDeviceMemory> m_computeResultBuffersMemory {};
-    std::vector<void*> m_computeResultBuffersMapped {};
+    std::vector<VkBuffer> m_compute_ubo_buffers {};
+    std::vector<VkDeviceMemory> m_compute_ubo_buffers_memory {};
+    std::vector<void*> m_compute_ubo_buffers_mapped {};
+    std::vector<VkBuffer> m_compute_result_buffers {};
+    std::vector<VkDeviceMemory> m_compute_result_buffers_memory {};
+    std::vector<void*> m_compute_result_buffers_mapped {};
 };
 
 int main()
