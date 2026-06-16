@@ -461,7 +461,7 @@ private:
         if (extensions_supported)
         {
             auto swap_chain_support = QuerySwapChainSupport(device);
-            swap_chain_adequate     = !swap_chain_support.foramts.empty() & !swap_chain_support.presentModes.empty();
+            swap_chain_adequate     = !swap_chain_support.foramts.empty() && !swap_chain_support.presentModes.empty();
         }
 
         return indices.IsComplete() && extensions_supported && swap_chain_adequate;
