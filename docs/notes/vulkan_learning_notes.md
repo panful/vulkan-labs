@@ -48,22 +48,22 @@ sudo apt install vulkan-sdk
 
 ## 四、source 目录结构
 
-### 01_VulkanTutorial
+### 01_vulkan_tutorial
 
 [Vulkan Tutorial](https://vulkan-tutorial.com/)
 
 [Vulkan Tutorial 翻译](https://github.com/fangcun010/VulkanTutorialCN)
 
-- 01_helloTriangle
+- 01_hello_triangle
   绘制一个三色三角形，在顶点着色器中提供顶点以及颜色数据
-- 02_vertexBuffers
+- 02_vertex_buffers
   顶点缓冲、索引缓冲的使用
-- 03_uniformBuffers
+- 03_uniform_buffers
   Uniform Buffers 的使用，给顶点着色器传递一个MVP 矩阵
   多个 DescriptorSet 的使用
-- 04_textureMapping
+- 04_texture_mapping
   纹理的使用
-- 05_depthBuffering
+- 05_depth_buffering
   开启深度测试。使用步骤：创建图形管线时开启深度测试`VkPipelineDepthStencilStateCreateInfo`，
   创建深度测试使用的资源`VkImage VkDeviceMemory VkImageView`，设置正确的pass信息，
   将深度图形附加到FrameBuffer，绘制循环开始时清除深度信息即可。
@@ -82,13 +82,13 @@ sudo apt install vulkan-sdk
 
     **以上只适用于OpenGL 的可编程渲染管线模式，在立即渲染模式下，OpenGL 使用的是右手坐标系**
 
-- 06_loadingModels
+- 06_loading_models
   加载一个模型，使用纹理、开启深度测试、传递MVP 矩阵
-- 07_generatingMipmaps
+- 07_generating_mipmaps
   细化纹理贴图 Mipmap
-- 08_multiSampling
+- 08_multi_sampling
   多重采样抗锯齿
-- 09_computeShader
+- 09_compute_shader
   计算着色器的使用，`vkCmdDispatch`的参数表示全局工作组的大小，
   Shader 中的`layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;`
   表示本地（局部）工作组的大小。两个工作组的乘积就是GPU线程的数量，
@@ -104,7 +104,7 @@ sudo apt install vulkan-sdk
   - 创建描述符集 vkAllocateDescriptorSets vkUpdateDescriptorSets
   - 创建指令缓冲 vkAllocateCommandBuffers
   - 创建同步对象 vkCreateSemaphore vkCreateFence
-- 10_buildCommandBuffers
+- 10_build_command_buffers
   只创建“一次”命令缓冲，因为每一帧记录到命令缓冲中的所有命令都是一样的，
   所以不用每一次渲染循环都创建一次命令缓冲，只需要统一将命令全部记录到 CommandBuffer 中，
   然后每一次渲染循环都使用该 CommandBuffer 即可。需要保证交换链中的图像数量和GPU最大并行帧数一致，
@@ -117,7 +117,7 @@ sudo apt install vulkan-sdk
 
 - 01_triangles
   绘制多个三角形，创建多个`vertex buffer`和`index buffer`，在一次渲染循环中`DrawFrame()`多次调用`vkCmdDraw`或`vkCmdDrawIndexed`
-- 02_dynamicUniformBuffers
+- 02_dynamic_uniform_buffers
   `VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC`的使用
   对不同的图元设置不同的`uniform`，比如一次渲染循环需要绘制多个三角形（多次DrawCall），
   每个三角形设置不同的颜色。使用的是同一个`DynamicUniformBuffer`，
@@ -127,21 +127,21 @@ sudo apt install vulkan-sdk
 - 04_pushconstants
   类似`Uniform Buffer`，但是不需要创建`descriptor sets`，用起来和OpenGL 的`uniform`一样简单，缺点是数据块大小不能太大
   在`VkPipelineLayoutCreateInfo`中添加`push_constant`信息，使用`vkCmdPushConstants`提交`push_constant`数据
-- 05_specializationConstants
+- 05_specialization_constants
   创建多个`pipeline`，每个`pipeline`设置不同的着色器常量(`constant_id`)
   `constant_id`可以在着色器编译时就将常量写入，并且不可更改，避免了着色器内部的分支展开，
   可以优化着色器的代码，运行时性能也更好，`uber(uniform branch)`使用`uniform`控制的分支要比`constant_id`控制慢20%-30%
-- 06_inputAttachments
-  利用subpass将颜色附件、深度附件显示到屏幕，在**01_06_loadingModels**的基础上更改
+- 06_input_attachments
+  利用subpass将颜色附件、深度附件显示到屏幕，在**01_06_loading_models**的基础上更改
 - 07_imgui
-  ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_helloTriangle**的基础上更改。**注意**：如果使用多个subpass记得初始化ImGui时设置正确的subpass
-- 08_deferredShading
+  ImGui的使用，如果需要添加控件，只需要修改函数`PrepareImGui()`即可，在**01_01_hello_triangle**的基础上更改。**注意**：如果使用多个subpass记得初始化ImGui时设置正确的subpass
+- 08_deferred_shading
   使用subpass延迟着色
 - 09_offscreen
   RenderTarget离屏渲染，将需要绘制的场景先绘制到一个离屏的帧缓冲上，然后将这个帧缓冲的附件（VkImage）以纹理的方式绘制到屏幕上
-- 10_postProcess
+- 10_post_process
   对离屏的帧缓冲图像进行后处理，从而实现各种特效，例如：反相、灰度、锐化、模糊、边缘检测等等
-- 11_vertexAttributes
+- 11_vertex_attributes
 
   ```text
   Interleaved: Buffer0: x0y0z0r0g0b0u0v0x1y1z1r1g1b1u1v1...
@@ -172,7 +172,7 @@ sudo apt install vulkan-sdk
   如果将`logicOpEnable`设置为`VK_TRUE`，那么`VkPipelineColorBlendAttachmentState`设置的混合方式将失效。
 - 16_transform
   通过设置GLFW的事件回调函数，生成`View`矩阵的参数(eyePos,focalPos,viewUp)，对图元进行缩放、平移、旋转
-- 17_multiThread
+- 17_multi_thread
   多线程并行生成命令缓冲区。每一个交换链（每一帧）都有一个主要命令缓冲区(PRIMARY)，主要命令缓冲区可以有多个辅助(SECONDARY)命令缓冲区。将需要绘制的多个图元分配给多个辅助命令缓冲区，每个辅助命令缓冲区并行执行。
 - 18_instancing
   实例化多个相同的图形，和 OpenGL 使用方式基本一致，着色器变量有一点区别：
@@ -183,27 +183,27 @@ sudo apt install vulkan-sdk
   `VkVertexInputBindingDivisorDescriptionEXT` `VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT`
 - 19_indirectdraw
   间接绘制适用于处理大量动态数据的场景，不需要CPU提供顶点等数据就可以绘制（例如计算着色器生成的顶点数据，无需回传到CPU创建顶点缓冲就可以直接使用）
-- 20_queryPool
+- 20_query_pool
   使用方法和 OpenGL 基本一样，先创建`VkQueryPool`，然后再使用`vkCmdBeginQuery`和`vkCmdEndQuery`查询：遮挡、管线统计、时间戳等。
   查询管线统计时，需要在创建逻辑设备时将`VkPhysicalDeviceFeatures.pipelineStatisticsQuery`设置为`VK_TRUE`，
   管线统计可以查询各种着色器（顶点、几何、片段、细分、计算等）的调用次数、输入输出个数等。
-- 21_renderPass
+- 21_render_pass
   renderPass 和 frameBuffer 的关系
   清除深度缓冲区，指定图元始终在最上层 vkCmdClearAttachments
-- 22_pipelineCache
+- 22_pipeline_cache
   VkPipelineCache 的使用，可以像 SPV 文件一样写入磁盘并读取，可以使用 vkMergePipelineCaches 合并多个 VkPipelineCache
-- 23_textureCubeMap
+- 23_texture_cube_map
   立方体贴图，在 02_16_transform_TEST4 的基础上修改，如果要想实现天空盒的效果，只需要相机的观察点始终在(0,0,0)并且不响应相机的移动操作即可
 
-### 03_computeShader
+### 03_compute_shader
 
-- 01_imageProcessing
+- 01_image_processing
   使用计算着色器对图像进行处理。
   `uniform image2D` 可读可写，通常用于渲染过程中动态修改纹理内容的场景
   `uniform imageBuffer` 一维可读可写的图像缓冲区
   `uniform sampler2D` 纹理采样器，只读
   绘图、计算、传输使用不同的队列簇。
-- 02_indirectDraw
+- 02_indirect_draw
   使用计算着色器生成的`VkDrawIndexedIndirectCommand`绘制图形，可以在计算着色器中做：视锥剔除、LOD等，然后将绘制命令写入到buffer中，交给CPU使用间接绘制命令绘制图形。
 
 ### 04_headless
@@ -213,27 +213,27 @@ sudo apt install vulkan-sdk
 - 02_compute
   仅仅使用计算着色器的计算功能，将CPU的数据在GPU中计算完成后，在CPU读取结果并打印。不创建窗口，不使用图形管线。
 
-### 05_geometryShader
+### 05_geometry_shader
 
-- 01_geometryShader
+- 01_geometry_shader
   几何着色器只需要在创建逻辑设备时，将`VkPhysicalDeviceFeatures.geometryShader`设置为`VK_TRUE`，
-  然后在创建渲染管线时，将几何着色器加入即可。代码在`01_02_vertexBuffers`的基础上修改。
-- 02_viewportArrays
+  然后在创建渲染管线时，将几何着色器加入即可。代码在`01_02_vertex_buffers`的基础上修改。
+- 02_viewport_arrays
   使用`multiViewport`时，需要先将`VkPhysicalDeviceFeatures.multiViewport`设置为`VK_TRUE`(geometryShader也要设置)，
   然后在创建渲染管线时，设置正确的`VkPipelineViewportStateCreateInfo`，
   如果程序开启了动态视口、裁剪，还需要正确调用`vkCmdSetViewport vkCmdSetScissor`
 
 ### 06_extensions
 
-- 01_conditionalRender
+- 01_conditional_render
   条件渲染，首先需要在创建Instance和Device时将扩展开启，然后加载`vkCmdBeginConditionalRenderingEXT vkCmdEndConditionalRenderingEXT`这两个函数指针。
-- 02_multiView
-  注意和 05_geometryShader/02_viewportArrays 的区别：
+- 02_multi_view
+  注意和 05_geometry_shader/02_viewport_arrays 的区别：
   multiView 是在顶点着色器中使用`gl_ViewIndex`，viewportArrays 是在几何着色器中使用`gl_InvocationID`，
   并且 multiView 是扩展功能。multiView 需要先将结果离屏渲染到 VkImage 中
   （交换链中的图片一般不支持 Array 类型的图片），然后以纹理的方式绘制到屏幕
   （ multiView 的结果是`VK_IMAGE_VIEW_TYPE_2D_ARRAY`）
-- 03_dynamicRendering
+- 03_dynamic_rendering
   `vkCmdBeginRenderingKHR vkCmdEndRenderingKHR` 不需要创建 `VkRenderPass VkFrameBuffer`，
   使用时需要开启 Instance 和 Device 的扩展，创建管线时需要指定 VkGraphicsPipelineCreateInfo.pNext
   为 VkPipelineRenderingCreateInfoKHR，绘制前和绘制后需要转换图像布局，
@@ -242,11 +242,11 @@ sudo apt install vulkan-sdk
   只需要在创建实例时，将`VkApplicationInfo.apiVersion` 设置为 `VK_API_VERSION_1_3`，
   然后在创建逻辑设备时开启设备特性：`dynamicRendering`
 
-### 07_Vulkan-Hpp
+### 07_vulkan_hpp
 
-- 01_helloTriangle
+- 01_hello_triangle
   使用 Vulkan 的C++头文件离屏绘制一个三角形并保存到图片中，只有一帧。
-- 02_multiFrame
+- 02_multi_frame
   GPU 多帧并行渲染
 - 03_buffer
   自定义几何数据（顶点、索引）
@@ -254,28 +254,29 @@ sudo apt install vulkan-sdk
   使用描述符集（Uniform）设置 MVP 矩阵
 - 05_texture
   使用纹理绘制
-- 06_depthBuffer
+- 06_depth_buffer
   开启深度测试
-- 07_swapChain
+- 07_swap_chain
   创建窗口渲染一个三角形
 - 08_offscreen
   离屏渲染到 vkImage 再以纹理渲染到窗口
-- 09_viewer
-  模仿 VTK 的一个Demo
-- 10_windows
-  多个窗口不同线程同时记录命令并提交，不同窗口使用同一个渲染管线
-- 11_productConsume
-  生产者消费者模型，一个线程用来绘制，一个线程用来将绘制的结果保存为图片（GPU多帧并行渲染，不创建窗口）
 
-### 08_application
+### 08_showcases
 
-- 01_shadowMap
+- 01_shadow_mapping
   阴影贴图实现光照阴影，先以光源视角生成一张深度图（阴影贴图），这张图记录了从光源到场景中每个可见片段的距离，再实际渲染一次场景，通过比较当前片段的深度值（光源视角的深度值），判断是否在阴影中。
 - 02_hdr
   高动态范围图像(High-Dynamic Range)，在 02_16_TEST5 的基础上修改，简单理解就是在离屏渲染时，
   将color-attachment的格式设置为float16或float32，这样就可以保存位数更大的颜色值
   （一般情况下是 uint_8 只有255位），然后将这个颜色附件再通过HDR算法处理一次
   （将float32或float16转换为uint_8）
+
+### 09_memory_allocation
+
+- 01_vma_vertex_buffers
+  基于 `01_vulkan_tutorial/02_vertex_buffers`，使用 VMA 管理顶点缓冲和索引缓冲的内存分配。
+- 02_vma_loading_models
+  基于 `01_vulkan_tutorial/06_loading_models`，使用 VMA 管理模型、纹理、深度图像和 Uniform Buffer 相关内存。
 
 ## TODO
 
