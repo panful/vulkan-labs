@@ -1,9 +1,10 @@
 /**
  * 1. obj
  * 2. gltf
+ * 3. ply
  */
 
-#define TEST1
+#define TEST3
 
 #ifdef TEST1
 
@@ -5855,3 +5856,70 @@ int main() {
 }
 
 #endif  // TEST2
+
+#ifdef TEST3
+
+#define TINYPLY_IMPLEMENTATION
+#include <tiny_ply/tinyply.h>
+
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <vector>
+
+int main() {
+  const std::string filename = "F:/data/3dgs/point_cloud.ply";
+
+  std::ifstream file_stream(filename, std::ios::binary);
+  if (!file_stream) {
+    std::cerr << "Failed to open file: " << filename << "\n";
+    return 1;
+  }
+
+  try {
+    tinyply::PlyFile ply_file;
+
+    ply_file.parse_header(file_stream);
+
+    std::cout << "PLY loaded: " << filename << "\n\n";
+
+    std::cout << "Elements:\n";
+    for (const auto& element : ply_file.get_elements()) {
+      std::cout << "  " << element.name << " count=" << element.size << "\n";
+
+      for (const auto& property : element.properties) {
+        std::cout << "    property: " << property.name << "\n";
+      }
+    }
+
+    std::shared_ptr<tinyply::PlyData> vertices;
+
+    try {
+      vertices = ply_file.request_properties_from_element("vertex", {"x", "y", "z"});
+    } catch (const std::exception& e) {
+      std::cout << "\nNo x/y/z vertex data found: " << e.what() << "\n";
+    }
+
+    ply_file.read(file_stream);
+
+    if (vertices) {
+      std::cout << "\nVertex count: " << vertices->count << "\n";
+
+      const float* pos = reinterpret_cast<const float*>(vertices->buffer.get());
+
+      const size_t show_count = std::min<size_t>(vertices->count, 5);
+
+      std::cout << "First " << show_count << " vertices:\n";
+      for (size_t i = 0; i < show_count; ++i) {
+        std::cout << "  " << pos[i * 3 + 0] << ", " << pos[i * 3 + 1] << ", " << pos[i * 3 + 2] << "\n";
+      }
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "tinyply error: " << e.what() << "\n";
+    return 1;
+  }
+
+  return 0;
+}
+
+#endif  // TEST3
