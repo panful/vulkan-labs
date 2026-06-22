@@ -736,8 +736,8 @@ private:
   /// @brief 创建图形管线
   /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
   void CreateGraphicsPipeline() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);
@@ -2270,8 +2270,8 @@ private:
   /// @brief 创建图形管线
   /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
   void CreateGraphicsPipeline() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);
@@ -3818,8 +3818,8 @@ private:
   /// @brief 创建图形管线
   /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
   void CreateGraphicsPipeline() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base2_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base2_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base2_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base2_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);
@@ -5346,8 +5346,8 @@ private:
   /// @brief 创建图形管线
   /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
   void CreateGraphicsPipeline() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base3_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_04_base3_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base3_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_04_base3_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);

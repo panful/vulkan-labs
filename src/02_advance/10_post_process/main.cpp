@@ -894,8 +894,8 @@ private:
 
   /// @brief 创建屏幕上显示的图形管线
   void CreateGraphicsPipelineQuad() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_10_quad_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_10_quad_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_10_quad_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_10_quad_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);
@@ -1062,8 +1062,8 @@ private:
   }
 
   void CreateGraphicsPipelineOffscreen() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_10_base_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/02_10_base_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "02_10_base_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "02_10_base_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);

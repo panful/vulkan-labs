@@ -293,7 +293,7 @@ private:
   }
 
   void CreateComputePipeline() {
-    auto compute_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/04_02_base_comp.spv");
+    auto compute_shader_code = ReadFile(PROJECT_SHADER_DIR "04_02_base_comp.spv");
 
     VkShaderModule compute_shader_module = CreateShaderModule(compute_shader_code);
 

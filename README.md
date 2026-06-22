@@ -5,7 +5,7 @@
 ## 目录
 
 - `src/`: Vulkan 示例源码
-- `assets/`: shader 编译结果、模型和纹理资源
+- `assets/`: 模型、纹理、字体等源资源
 - `third_party/`: 第三方依赖源码
 - `scripts/`: 辅助脚本
 - `docs/`: 构建说明、学习笔记和工程规范

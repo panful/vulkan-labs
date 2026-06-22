@@ -649,8 +649,8 @@ int main() {
     vk::raii::RenderPass render_pass(device, render_pass_create_info);
 
     //--------------------------------------------------------------------------------------
-    std::vector<uint32_t> vert_spv = ReadFile(PROJECT_ASSETS_DIR "shaders/01_05_base_vert.spv");
-    std::vector<uint32_t> frag_spv = ReadFile(PROJECT_ASSETS_DIR "shaders/01_05_base_frag.spv");
+    std::vector<uint32_t> vert_spv = ReadFile(PROJECT_SHADER_DIR "07_06_base_vert.spv");
+    std::vector<uint32_t> frag_spv = ReadFile(PROJECT_SHADER_DIR "07_06_base_frag.spv");
     vk::raii::ShaderModule vertex_shader_module(device,
                                                 vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vert_spv));
     vk::raii::ShaderModule fragment_shader_module(device,

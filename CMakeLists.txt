@@ -13,6 +13,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}"
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
 
 file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}/assets" PROJECT_ASSETS_DIR)
+file(TO_CMAKE_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders" PROJECT_SHADER_DIR)
 
 option(ENABLE_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 if(ENABLE_CLANG_TIDY)
@@ -40,6 +41,11 @@ else()
     message("     Vulkan_LIBRARY: ${Vulkan_LIBRARY}")
     message("   Vulkan_LIBRARIES: ${Vulkan_LIBRARIES}")
     message("------------------------------------------------------")
+endif()
+
+find_program(GLSLC_EXE NAMES glslc glslc.exe HINTS "$ENV{VULKAN_SDK}/Bin")
+if(NOT GLSLC_EXE)
+    message(FATAL_ERROR "glslc not found")
 endif()
 
 add_subdirectory(third_party)

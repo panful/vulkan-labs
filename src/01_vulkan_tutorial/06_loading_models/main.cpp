@@ -768,8 +768,8 @@ private:
   /// @brief 创建图形管线
   /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
   void CreateGraphicsPipeline() {
-    auto vert_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/01_06_base_vert.spv");
-    auto frag_shader_code = ReadFile(PROJECT_ASSETS_DIR "shaders/01_06_base_frag.spv");
+    auto vert_shader_code = ReadFile(PROJECT_SHADER_DIR "01_06_base_vert.spv");
+    auto frag_shader_code = ReadFile(PROJECT_SHADER_DIR "01_06_base_frag.spv");
 
     VkShaderModule vert_shader_module = CreateShaderModule(vert_shader_code);
     VkShaderModule frag_shader_module = CreateShaderModule(frag_shader_code);
@@ -4372,30 +4372,30 @@ private:
 
   void CreatePipelines() {
     m_context->pipelines.try_emplace(
-      PipelineType::DcNl, CreateGraphicsPipeline(PipelineType::DcNl, PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_vert.spv",
-                                                 PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_frag.spv"));
+      PipelineType::DcNl, CreateGraphicsPipeline(PipelineType::DcNl, PROJECT_SHADER_DIR "01_06_dc_nl_vert.spv",
+                                                 PROJECT_SHADER_DIR "01_06_dc_nl_frag.spv"));
 
     m_context->pipelines.try_emplace(
-      PipelineType::DcPl, CreateGraphicsPipeline(PipelineType::DcPl, PROJECT_ASSETS_DIR "shaders/01_06_dc_pl_vert.spv",
-                                                 PROJECT_ASSETS_DIR "shaders/01_06_dc_pl_frag.spv"));
+      PipelineType::DcPl, CreateGraphicsPipeline(PipelineType::DcPl, PROJECT_SHADER_DIR "01_06_dc_pl_vert.spv",
+                                                 PROJECT_SHADER_DIR "01_06_dc_pl_frag.spv"));
 
     m_context->pipelines.try_emplace(
-      PipelineType::TcNl, CreateGraphicsPipeline(PipelineType::TcNl, PROJECT_ASSETS_DIR "shaders/01_06_tc_nl_vert.spv",
-                                                 PROJECT_ASSETS_DIR "shaders/01_06_tc_nl_frag.spv"));
+      PipelineType::TcNl, CreateGraphicsPipeline(PipelineType::TcNl, PROJECT_SHADER_DIR "01_06_tc_nl_vert.spv",
+                                                 PROJECT_SHADER_DIR "01_06_tc_nl_frag.spv"));
 
     m_context->pipelines.try_emplace(
-      PipelineType::TcPl, CreateGraphicsPipeline(PipelineType::TcPl, PROJECT_ASSETS_DIR "shaders/01_06_tc_pl_vert.spv",
-                                                 PROJECT_ASSETS_DIR "shaders/01_06_tc_pl_frag.spv"));
+      PipelineType::TcPl, CreateGraphicsPipeline(PipelineType::TcPl, PROJECT_SHADER_DIR "01_06_tc_pl_vert.spv",
+                                                 PROJECT_SHADER_DIR "01_06_tc_pl_frag.spv"));
 
     m_context->pipelines.try_emplace(
       PipelineType::DcNlAW2,
-      CreateGraphicsPipeline(PipelineType::DcNlAW2, PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_aw2_vert.spv",
-                             PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_aw2_frag.spv"));
+      CreateGraphicsPipeline(PipelineType::DcNlAW2, PROJECT_SHADER_DIR "01_06_dc_nl_aw2_vert.spv",
+                             PROJECT_SHADER_DIR "01_06_dc_nl_aw2_frag.spv"));
 
     m_context->pipelines.try_emplace(
       PipelineType::DcNlAS2,
-      CreateGraphicsPipeline(PipelineType::DcNlAS2, PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_as2_vert.spv",
-                             PROJECT_ASSETS_DIR "shaders/01_06_dc_nl_as2_frag.spv"));
+      CreateGraphicsPipeline(PipelineType::DcNlAS2, PROJECT_SHADER_DIR "01_06_dc_nl_as2_vert.spv",
+                             PROJECT_SHADER_DIR "01_06_dc_nl_as2_frag.spv"));
   }
 
   /// @brief 创建图形管线
