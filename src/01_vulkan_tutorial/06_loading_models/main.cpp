@@ -4,7 +4,7 @@
  * 3. ply
  */
 
-#define TEST3
+#define TEST2
 
 #ifdef TEST1
 
@@ -2709,7 +2709,7 @@ private:
     CreatePipelines();
 
     m_models.try_emplace(PROJECT_ASSETS_DIR "models/morph.gltf", std::make_unique<Model>());
-    m_models.try_emplace(PROJECT_ASSETS_DIR "models/test.gltf", std::make_unique<Model>());
+    m_models.try_emplace(PROJECT_ASSETS_DIR "models/rectangles.gltf", std::make_unique<Model>());
     m_models.try_emplace(PROJECT_ASSETS_DIR "models/teapot.gltf", std::make_unique<Model>());
     m_models.try_emplace(PROJECT_ASSETS_DIR "models/sphere.gltf", std::make_unique<Model>());
     m_models.try_emplace(PROJECT_ASSETS_DIR "models/WaterBottle/WaterBottle.gltf", std::make_unique<Model>());
