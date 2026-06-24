@@ -2,108 +2,237 @@
 
 #include <algorithm>
 #include <cmath>
-#include <glm/gtc/quaternion.hpp>
-#include <numbers>
 #include <stdexcept>
 
 namespace lvk::camera {
 namespace {
-constexpr double k_pitch_limit{89.9 * std::numbers::pi / 180.0};
 constexpr double k_epsilon{1e-12};
 
-[[nodiscard]] glm::dquat RotationFromYawPitch(double yaw, double pitch) {
-  const glm::dquat yaw_rotation{glm::angleAxis(yaw, glm::dvec3{0.0, 1.0, 0.0})};
-  const glm::dquat pitch_rotation{glm::angleAxis(pitch, glm::dvec3{1.0, 0.0, 0.0})};
-  return glm::normalize(yaw_rotation * pitch_rotation);
-}
+[[nodiscard]] bool IsFinitePositive(double value) noexcept { return std::isfinite(value) && value > 0.0; }
+
+[[nodiscard]] bool IsFiniteNonNegative(double value) noexcept { return std::isfinite(value) && value >= 0.0; }
 
 [[nodiscard]] double LengthSquared(glm::dvec3 value) noexcept { return glm::dot(value, value); }
+
+[[nodiscard]] glm::dvec3 NormalizeOrFallback(glm::dvec3 value, glm::dvec3 fallback) {
+  if (LengthSquared(value) <= k_epsilon) {
+    return glm::normalize(fallback);
+  }
+  return glm::normalize(value);
+}
+
+[[nodiscard]] glm::dvec3 GetReferenceForward(glm::dvec3 world_up) {
+  const glm::dvec3 fallback_forward{std::abs(world_up.y) < 0.9 ? glm::dvec3{0.0, 1.0, 0.0}
+                                                               : glm::dvec3{0.0, 0.0, -1.0}};
+  return NormalizeOrFallback(fallback_forward - world_up * glm::dot(fallback_forward, world_up),
+                             glm::dvec3{0.0, 0.0, -1.0});
+}
+
+[[nodiscard]] glm::dvec3 GetReferenceRight(glm::dvec3 reference_forward, glm::dvec3 world_up) {
+  return NormalizeOrFallback(glm::cross(reference_forward, world_up), glm::dvec3{1.0, 0.0, 0.0});
+}
 }  // namespace
 
-FpsCameraController::FpsCameraController(Camera* camera) : m_camera(camera) { SyncFromCamera(); }
+FreeLookCameraController::FreeLookCameraController(Camera* camera) : CameraController{camera} { SyncFromCamera(); }
 
-void FpsCameraController::SetCamera(Camera* camera) noexcept {
-  m_camera = camera;
+void FreeLookCameraController::Attach(Camera* camera) noexcept {
+  CameraController::Attach(camera);
   SyncFromCamera();
 }
 
-void FpsCameraController::SetDesc(const FpsCameraControllerDesc& desc) {
+void FreeLookCameraController::SetDesc(const FreeLookCameraControllerDesc& desc) {
   m_desc = desc;
   ValidateDesc();
+  SyncFromCamera();
 }
 
-const FpsCameraControllerDesc& FpsCameraController::GetDesc() const noexcept { return m_desc; }
+const FreeLookCameraControllerDesc& FreeLookCameraController::GetDesc() const noexcept { return m_desc; }
 
-void FpsCameraController::SyncFromCamera() {
+void FreeLookCameraController::SyncFromCamera() {
   if (nullptr == m_camera) {
     m_yaw = 0.0;
     m_pitch = 0.0;
     return;
   }
 
+  const glm::dvec3 world_up{NormalizeOrFallback(m_desc.world_up, glm::dvec3{0.0, 1.0, 0.0})};
   const glm::dvec3 forward{m_camera->GetForward()};
-  m_pitch = std::asin(std::clamp(forward.y, -1.0, 1.0));
-  m_yaw = std::atan2(-forward.x, -forward.z);
+  const double up_component{std::clamp(glm::dot(forward, world_up), -1.0, 1.0)};
+  const glm::dvec3 planar_forward{NormalizeOrFallback(forward - world_up * up_component, m_camera->GetForward())};
+  const glm::dvec3 reference_forward{GetReferenceForward(world_up)};
+  const glm::dvec3 reference_right{GetReferenceRight(reference_forward, world_up)};
+
+  m_pitch = std::asin(up_component);
+  m_yaw = std::atan2(glm::dot(planar_forward, reference_right), glm::dot(planar_forward, reference_forward));
 }
 
-void FpsCameraController::Update(double delta_seconds, const InputState& input_state) {
+void FreeLookCameraController::Update([[maybe_unused]] double delta_seconds, const CameraControllerInput& input) {
+  if (input.look) {
+    ApplyLookDelta(input.cursor_delta_x, input.cursor_delta_y);
+  }
+}
+
+void FreeLookCameraController::ApplyLookDelta(double delta_x, double delta_y) {
   if (nullptr == m_camera) {
     return;
   }
 
   ValidateDesc();
-
-  if (input_state.right_mouse_down) {
-    m_yaw -= input_state.mouse_delta_x * m_desc.look_sensitivity;
-    m_pitch -= input_state.mouse_delta_y * m_desc.look_sensitivity;
-    m_pitch = std::clamp(m_pitch, -k_pitch_limit, k_pitch_limit);
-    ApplyRotationToCamera();
-  }
-
-  glm::dvec3 local_movement{0.0, 0.0, 0.0};
-  if (input_state.key_w || input_state.key_up) {
-    local_movement.z -= 1.0;
-  }
-  if (input_state.key_s || input_state.key_down) {
-    local_movement.z += 1.0;
-  }
-  if (input_state.key_a || input_state.key_left) {
-    local_movement.x -= 1.0;
-  }
-  if (input_state.key_d || input_state.key_right) {
-    local_movement.x += 1.0;
-  }
-  if (input_state.key_e || input_state.space_down) {
-    local_movement.y += 1.0;
-  }
-  if (input_state.key_q) {
-    local_movement.y -= 1.0;
-  }
-
-  if (LengthSquared(local_movement) <= k_epsilon) {
-    return;
-  }
-
-  const double speed{m_desc.move_speed * (input_state.shift_down ? m_desc.fast_move_multiplier : 1.0)};
-  const double distance{speed * delta_seconds};
-  const glm::dvec3 direction{glm::normalize(m_camera->GetRight() * local_movement.x +
-                                            m_camera->GetUp() * local_movement.y +
-                                            m_camera->GetForward() * -local_movement.z)};
-  m_camera->SetPosition(m_camera->GetPosition() + direction * distance);
+  m_yaw += delta_x * m_desc.look_sensitivity;
+  m_pitch -= delta_y * m_desc.look_sensitivity;
+  m_pitch = std::clamp(m_pitch, -m_desc.pitch_limit_rad, m_desc.pitch_limit_rad);
+  ApplyRotationToCamera();
 }
 
-void FpsCameraController::ApplyRotationToCamera() {
+void FreeLookCameraController::ApplyRotationToCamera() {
   if (nullptr == m_camera) {
     return;
   }
 
-  m_camera->SetRotation(RotationFromYawPitch(m_yaw, m_pitch));
+  const glm::dvec3 position{m_camera->GetPosition()};
+  m_camera->LookAt(position, position + GetForward(), m_desc.world_up);
 }
 
-void FpsCameraController::ValidateDesc() const {
-  if (!std::isfinite(m_desc.move_speed) || m_desc.move_speed < 0.0 || !std::isfinite(m_desc.fast_move_multiplier) ||
-      m_desc.fast_move_multiplier < 1.0 || !std::isfinite(m_desc.look_sensitivity) || m_desc.look_sensitivity <= 0.0) {
+glm::dvec3 FreeLookCameraController::GetForward() const {
+  const glm::dvec3 world_up{NormalizeOrFallback(m_desc.world_up, glm::dvec3{0.0, 1.0, 0.0})};
+  const glm::dvec3 reference_forward{GetReferenceForward(world_up)};
+  const glm::dvec3 reference_right{GetReferenceRight(reference_forward, world_up)};
+  const glm::dvec3 planar_forward{std::cos(m_yaw) * reference_forward + std::sin(m_yaw) * reference_right};
+  return glm::normalize(std::cos(m_pitch) * planar_forward + std::sin(m_pitch) * world_up);
+}
+
+glm::dvec3 FreeLookCameraController::GetRight() const {
+  return NormalizeOrFallback(glm::cross(GetForward(), m_desc.world_up), glm::dvec3{1.0, 0.0, 0.0});
+}
+
+glm::dvec3 FreeLookCameraController::GetPlanarForward() const {
+  const glm::dvec3 world_up{NormalizeOrFallback(m_desc.world_up, glm::dvec3{0.0, 1.0, 0.0})};
+  return NormalizeOrFallback(GetForward() - world_up * glm::dot(GetForward(), world_up), GetForward());
+}
+
+void FreeLookCameraController::ValidateDesc() const {
+  if (LengthSquared(m_desc.world_up) <= k_epsilon || !IsFinitePositive(m_desc.look_sensitivity) ||
+      !IsFinitePositive(m_desc.pitch_limit_rad) || m_desc.pitch_limit_rad >= glm::radians(90.0)) {
+    throw std::invalid_argument("invalid free-look camera controller settings");
+  }
+}
+
+FpsCameraController::FpsCameraController(Camera* camera) : FreeLookCameraController{camera} { SetDesc(m_fps_desc); }
+
+void FpsCameraController::SetDesc(const FpsCameraControllerDesc& desc) {
+  m_fps_desc = desc;
+  m_desc.world_up = desc.world_up;
+  m_desc.look_sensitivity = desc.look_sensitivity;
+  m_desc.pitch_limit_rad = desc.pitch_limit_rad;
+  ValidateFpsDesc();
+  SyncFromCamera();
+}
+
+const FpsCameraControllerDesc& FpsCameraController::GetDesc() const noexcept { return m_fps_desc; }
+
+void FpsCameraController::Update(double delta_seconds, const CameraControllerInput& input) {
+  FreeLookCameraController::Update(delta_seconds, input);
+  if (nullptr == m_camera) {
+    return;
+  }
+
+  ValidateFpsDesc();
+  const glm::dvec3 movement{GetMovementDirection(input)};
+  if (LengthSquared(movement) <= k_epsilon) {
+    return;
+  }
+
+  const double speed{m_fps_desc.move_speed * (input.fast ? m_fps_desc.fast_move_multiplier : 1.0)};
+  m_camera->SetPosition(m_camera->GetPosition() + glm::normalize(movement) * speed * delta_seconds);
+}
+
+glm::dvec3 FpsCameraController::GetMovementDirection(const CameraControllerInput& input) const {
+  glm::dvec3 movement{0.0};
+  if (input.move_forward) {
+    movement += GetPlanarForward();
+  }
+  if (input.move_backward) {
+    movement -= GetPlanarForward();
+  }
+  if (input.move_right) {
+    movement += GetRight();
+  }
+  if (input.move_left) {
+    movement -= GetRight();
+  }
+  if (input.move_up) {
+    movement += NormalizeOrFallback(m_fps_desc.world_up, glm::dvec3{0.0, 1.0, 0.0});
+  }
+  if (input.move_down) {
+    movement -= NormalizeOrFallback(m_fps_desc.world_up, glm::dvec3{0.0, 1.0, 0.0});
+  }
+  return movement;
+}
+
+void FpsCameraController::ValidateFpsDesc() const {
+  ValidateDesc();
+  if (!IsFiniteNonNegative(m_fps_desc.move_speed) || !IsFinitePositive(m_fps_desc.fast_move_multiplier)) {
     throw std::invalid_argument("invalid FPS camera controller settings");
+  }
+}
+
+FlyCameraController::FlyCameraController(Camera* camera) : FreeLookCameraController{camera} { SetDesc(m_fly_desc); }
+
+void FlyCameraController::SetDesc(const FlyCameraControllerDesc& desc) {
+  m_fly_desc = desc;
+  m_desc.world_up = desc.world_up;
+  m_desc.look_sensitivity = desc.look_sensitivity;
+  m_desc.pitch_limit_rad = desc.pitch_limit_rad;
+  ValidateFlyDesc();
+  SyncFromCamera();
+}
+
+const FlyCameraControllerDesc& FlyCameraController::GetDesc() const noexcept { return m_fly_desc; }
+
+void FlyCameraController::Update(double delta_seconds, const CameraControllerInput& input) {
+  FreeLookCameraController::Update(delta_seconds, input);
+  if (nullptr == m_camera) {
+    return;
+  }
+
+  ValidateFlyDesc();
+  const glm::dvec3 movement{GetMovementDirection(input)};
+  if (LengthSquared(movement) <= k_epsilon) {
+    return;
+  }
+
+  const double speed{m_fly_desc.move_speed * (input.fast ? m_fly_desc.fast_move_multiplier : 1.0)};
+  m_camera->SetPosition(m_camera->GetPosition() + glm::normalize(movement) * speed * delta_seconds);
+}
+
+glm::dvec3 FlyCameraController::GetMovementDirection(const CameraControllerInput& input) const {
+  glm::dvec3 movement{0.0};
+  if (input.move_forward) {
+    movement += GetForward();
+  }
+  if (input.move_backward) {
+    movement -= GetForward();
+  }
+  if (input.move_right) {
+    movement += GetRight();
+  }
+  if (input.move_left) {
+    movement -= GetRight();
+  }
+  if (input.move_up) {
+    movement += m_camera ? m_camera->GetUp() : NormalizeOrFallback(m_fly_desc.world_up, glm::dvec3{0.0, 1.0, 0.0});
+  }
+  if (input.move_down) {
+    movement -= m_camera ? m_camera->GetUp() : NormalizeOrFallback(m_fly_desc.world_up, glm::dvec3{0.0, 1.0, 0.0});
+  }
+  return movement;
+}
+
+void FlyCameraController::ValidateFlyDesc() const {
+  ValidateDesc();
+  if (!IsFiniteNonNegative(m_fly_desc.move_speed) || !IsFinitePositive(m_fly_desc.fast_move_multiplier) ||
+      !IsFiniteNonNegative(m_fly_desc.roll_speed_rad)) {
+    throw std::invalid_argument("invalid fly camera controller settings");
   }
 }
 }  // namespace lvk::camera

@@ -40,11 +40,13 @@ add_library(lvk_camera STATIC)
 target_sources(lvk_camera
     PUBLIC
         include/lvk/camera/camera.h
+        include/lvk/camera/camera_controller.h
         include/lvk/camera/camera_types.h
         include/lvk/camera/fps_camera_controller.h
         include/lvk/camera/orbit_camera_controller.h
     PRIVATE
         src/camera/camera.cpp
+        src/camera/camera_controller.cpp
         src/camera/fps_camera_controller.cpp
         src/camera/orbit_camera_controller.cpp
 )

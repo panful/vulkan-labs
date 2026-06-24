@@ -21,6 +21,7 @@ public:
   [[nodiscard]] double GetOrthographicHeight() const noexcept;
   void SetOrthographicHeight(double orthographic_height);
   [[nodiscard]] const glm::dvec3& GetPosition() const noexcept;
+  [[nodiscard]] const glm::dquat& GetRotation() const noexcept;
   [[nodiscard]] glm::dvec3 GetForward() const noexcept;
   [[nodiscard]] glm::dvec3 GetRight() const noexcept;
   [[nodiscard]] glm::dvec3 GetUp() const noexcept;

@@ -23,12 +23,57 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
+#include <string_view>
 #include <vector>
 
 namespace {
-enum class CameraControlType { Orbit, Fps };
+enum class CameraControlType { YawPitchOrbit, ArcballOrbit, Fps };
+
+[[nodiscard]] const char* GetCameraControlTypeName(CameraControlType camera_control_type) noexcept {
+  switch (camera_control_type) {
+    case CameraControlType::YawPitchOrbit:
+      return "YawPitch Orbit";
+    case CameraControlType::ArcballOrbit:
+      return "Arcball Orbit";
+    case CameraControlType::Fps:
+      return "FPS";
+  }
+  return "Unknown";
+}
 
 [[nodiscard]] glm::dvec3 GetCameraTarget() noexcept { return {0.0, 0.0, 0.0}; }
+
+void DrawImGuiText(std::string_view text) { ImGui::TextUnformatted(text.data(), text.data() + text.size()); }
+
+[[nodiscard]] lvk::camera::CameraControllerInput MapCameraControllerInput(const lvk::InputState& input_state,
+                                                                          bool wants_mouse,
+                                                                          bool wants_keyboard) noexcept {
+  lvk::camera::CameraControllerInput input{};
+  input.cursor_x = input_state.mouse_x;
+  input.cursor_y = input_state.mouse_y;
+
+  if (!wants_mouse) {
+    input.cursor_delta_x = input_state.mouse_delta_x;
+    input.cursor_delta_y = input_state.mouse_delta_y;
+    input.scroll_delta_y = input_state.scroll_delta_y;
+    input.rotate = input_state.left_mouse_down;
+    input.pan = input_state.middle_mouse_down || input_state.right_mouse_down;
+    input.look = input_state.right_mouse_down;
+  }
+
+  if (!wants_keyboard) {
+    input.move_forward = input_state.key_w || input_state.key_up;
+    input.move_backward = input_state.key_s || input_state.key_down;
+    input.move_left = input_state.key_a || input_state.key_left;
+    input.move_right = input_state.key_d || input_state.key_right;
+    input.move_up = input_state.key_e || input_state.space_down;
+    input.move_down = input_state.key_q;
+    input.fast = input_state.shift_down;
+  }
+
+  return input;
+}
 
 struct Vertex {
   glm::vec3 position{};
@@ -112,39 +157,19 @@ protected:
   }
 
   void OnUpdate(float delta_seconds, const lvk::InputState& input_state) override {
-    lvk::InputState camera_input{input_state};
-    if (m_imgui_layer.WantsMouse()) {
-      camera_input.mouse_delta_x = 0.0;
-      camera_input.mouse_delta_y = 0.0;
-      camera_input.scroll_delta_x = 0.0;
-      camera_input.scroll_delta_y = 0.0;
-      camera_input.left_mouse_down = false;
-      camera_input.middle_mouse_down = false;
-      camera_input.right_mouse_down = false;
-    }
-    if (m_imgui_layer.WantsKeyboard()) {
-      camera_input.key_w = false;
-      camera_input.key_a = false;
-      camera_input.key_s = false;
-      camera_input.key_d = false;
-      camera_input.key_q = false;
-      camera_input.key_e = false;
-      camera_input.key_up = false;
-      camera_input.key_down = false;
-      camera_input.key_left = false;
-      camera_input.key_right = false;
-      camera_input.space_down = false;
-      camera_input.shift_down = false;
-    }
+    lvk::camera::CameraControllerInput camera_input{
+      MapCameraControllerInput(input_state, m_imgui_layer.WantsMouse(), m_imgui_layer.WantsKeyboard())};
 
     if (lvk::camera::ProjectionType::Orthographic == m_projection_type && 0.0 != camera_input.scroll_delta_y) {
       ApplyOrthographicScrollZoom(camera_input.scroll_delta_y);
-      camera_input.scroll_delta_x = 0.0;
       camera_input.scroll_delta_y = 0.0;
     }
 
-    if (CameraControlType::Orbit == m_camera_control_type) {
-      m_orbit_camera_controller.Update(delta_seconds, camera_input);
+    UpdateOrbitViewportSize();
+    if (CameraControlType::YawPitchOrbit == m_camera_control_type) {
+      m_yaw_pitch_orbit_camera_controller.Update(delta_seconds, camera_input);
+    } else if (CameraControlType::ArcballOrbit == m_camera_control_type) {
+      m_arcball_orbit_camera_controller.Update(delta_seconds, camera_input);
     } else {
       m_fps_camera_controller.Update(delta_seconds, camera_input);
     }
@@ -206,15 +231,17 @@ private:
   void InitializeCamera() {
     ResetCameraPose();
 
-    m_orbit_camera_controller.SetCamera(&m_camera);
+    m_yaw_pitch_orbit_camera_controller.Attach(&m_camera);
+    m_arcball_orbit_camera_controller.Attach(&m_camera);
     lvk::camera::OrbitCameraControllerDesc desc{};
     desc.distance = 4.5;
     desc.min_distance = 1.0;
     desc.max_distance = 50.0;
-    m_orbit_camera_controller.SetDesc(desc);
-    m_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    ApplyOrbitDesc(desc);
+    m_yaw_pitch_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    m_arcball_orbit_camera_controller.SyncFromCameraAndTarget();
 
-    m_fps_camera_controller.SetCamera(&m_camera);
+    m_fps_camera_controller.Attach(&m_camera);
     lvk::camera::FpsCameraControllerDesc fps_desc{};
     fps_desc.move_speed = 3.0;
     fps_desc.fast_move_multiplier = 4.0;
@@ -233,12 +260,30 @@ private:
     }
   }
 
-  void UpdateCameraAspectRatio() { ApplyCameraProjection(); }
+  void UpdateCameraAspectRatio() {
+    ApplyCameraProjection();
+    UpdateOrbitViewportSize();
+  }
+
+  void UpdateOrbitViewportSize() {
+    const VkExtent2D extent{GetSwapChain().GetExtent()};
+    const double width{std::max(static_cast<double>(extent.width), 1.0)};
+    const double height{std::max(static_cast<double>(extent.height), 1.0)};
+    m_yaw_pitch_orbit_camera_controller.SetViewportSize(width, height);
+    m_arcball_orbit_camera_controller.SetViewportSize(width, height);
+  }
+
+  void ApplyOrbitDesc(const lvk::camera::OrbitCameraControllerDesc& desc) {
+    m_yaw_pitch_orbit_camera_controller.SetDesc(desc);
+    m_arcball_orbit_camera_controller.SetDesc(desc);
+    UpdateOrbitViewportSize();
+  }
 
   void ResetCameraPose() {
     ApplyCameraProjection();
     m_camera.LookAt({0.0, 1.5, 4.0}, GetCameraTarget());
-    m_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    m_yaw_pitch_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    m_arcball_orbit_camera_controller.SyncFromCameraAndTarget();
     m_fps_camera_controller.SyncFromCamera();
   }
 
@@ -265,7 +310,7 @@ private:
   }
 
   void ApplyOrthographicScrollZoom(double scroll_delta_y) {
-    const lvk::camera::OrbitCameraControllerDesc& desc{m_orbit_camera_controller.GetDesc()};
+    const lvk::camera::OrbitCameraControllerDesc& desc{m_yaw_pitch_orbit_camera_controller.GetDesc()};
     const double factor{std::pow(1.0 - desc.dolly_sensitivity, scroll_delta_y)};
     m_orthographic_height =
       static_cast<float>(std::clamp(static_cast<double>(m_orthographic_height) * factor, 1.0, 20.0));
@@ -273,12 +318,17 @@ private:
   }
 
   void ToggleCameraControlType() {
-    if (CameraControlType::Orbit == m_camera_control_type) {
+    if (CameraControlType::YawPitchOrbit == m_camera_control_type) {
+      m_arcball_orbit_camera_controller.SetDesc(m_yaw_pitch_orbit_camera_controller.GetDesc());
+      m_arcball_orbit_camera_controller.SyncFromCameraAndTarget();
+      m_camera_control_type = CameraControlType::ArcballOrbit;
+    } else if (CameraControlType::ArcballOrbit == m_camera_control_type) {
       m_camera_control_type = CameraControlType::Fps;
       m_fps_camera_controller.SyncFromCamera();
     } else {
-      m_camera_control_type = CameraControlType::Orbit;
-      m_orbit_camera_controller.SyncFromCameraAndTarget();
+      m_yaw_pitch_orbit_camera_controller.SetDesc(m_arcball_orbit_camera_controller.GetDesc());
+      m_camera_control_type = CameraControlType::YawPitchOrbit;
+      m_yaw_pitch_orbit_camera_controller.SyncFromCameraAndTarget();
     }
   }
 
@@ -306,18 +356,23 @@ private:
         ApplyCameraProjection();
       }
     }
-    if (CameraControlType::Orbit == m_camera_control_type) {
+    if (CameraControlType::YawPitchOrbit == m_camera_control_type) {
+      if (ImGui::Button("Switch to arcball orbit controls")) {
+        ToggleCameraControlType();
+      }
+    } else if (CameraControlType::ArcballOrbit == m_camera_control_type) {
       if (ImGui::Button("Switch to FPS controls")) {
         ToggleCameraControlType();
       }
-    } else if (ImGui::Button("Switch to orbit controls")) {
+    } else if (ImGui::Button("Switch to yaw-pitch orbit controls")) {
       ToggleCameraControlType();
     }
     if (ImGui::Button("Reset camera")) {
       ResetCameraPose();
     }
+    DrawCameraDebugUi();
     ImGui::Separator();
-    if (CameraControlType::Orbit == m_camera_control_type) {
+    if (CameraControlType::Fps != m_camera_control_type) {
       ImGui::TextUnformatted("Left drag: orbit");
       ImGui::TextUnformatted("Middle/right drag: pan");
       if (lvk::camera::ProjectionType::Orthographic == m_projection_type) {
@@ -334,10 +389,39 @@ private:
     ImGui::End();
   }
 
+  void DrawCameraDebugUi() {
+    const glm::dvec3 position{m_camera.GetPosition()};
+    const glm::dvec3 forward{m_camera.GetForward()};
+    const glm::dvec3 right{m_camera.GetRight()};
+    const glm::dvec3 up{m_camera.GetUp()};
+    const lvk::camera::OrbitCameraControllerDesc& orbit_desc{GetActiveOrbitDesc()};
+
+    ImGui::Separator();
+    DrawImGuiText(std::format("Camera mode: {}", GetCameraControlTypeName(m_camera_control_type)));
+    DrawImGuiText(std::format("Projection: {}", lvk::camera::ProjectionType::Perspective == m_projection_type
+                                                  ? "Perspective"
+                                                  : "Orthographic"));
+    DrawImGuiText(std::format("Position: {:.3f}, {:.3f}, {:.3f}", position.x, position.y, position.z));
+    DrawImGuiText(std::format("Forward: {:.3f}, {:.3f}, {:.3f}", forward.x, forward.y, forward.z));
+    DrawImGuiText(std::format("Right: {:.3f}, {:.3f}, {:.3f}", right.x, right.y, right.z));
+    DrawImGuiText(std::format("Up: {:.3f}, {:.3f}, {:.3f}", up.x, up.y, up.z));
+    DrawImGuiText(std::format("Orbit target: {:.3f}, {:.3f}, {:.3f}", orbit_desc.target.x, orbit_desc.target.y,
+                              orbit_desc.target.z));
+    DrawImGuiText(std::format("Orbit distance: {:.3f}", orbit_desc.distance));
+    DrawImGuiText(std::format("Vertical FOV: {:.1f} deg", m_perspective_fov_deg));
+  }
+
+  [[nodiscard]] const lvk::camera::OrbitCameraControllerDesc& GetActiveOrbitDesc() const {
+    if (CameraControlType::ArcballOrbit == m_camera_control_type) {
+      return m_arcball_orbit_camera_controller.GetDesc();
+    }
+    return m_yaw_pitch_orbit_camera_controller.GetDesc();
+  }
+
   void CreatePipeline() {
     VkDevice device{GetContext().GetDevice()};
-    const std::vector<char> vertex_shader_code{lvk::ReadBinaryFile(LVK_SHADER_DIR "base.vert.spv")};
-    const std::vector<char> fragment_shader_code{lvk::ReadBinaryFile(LVK_SHADER_DIR "base.frag.spv")};
+    const std::vector<char> vertex_shader_code{lvk::ReadBinaryFile(PROJECT_SHADER_DIR "10_01_base_vert.spv")};
+    const std::vector<char> fragment_shader_code{lvk::ReadBinaryFile(PROJECT_SHADER_DIR "10_01_base_frag.spv")};
     VkShaderModule vertex_shader_module{lvk::CreateShaderModule(device, vertex_shader_code)};
     VkShaderModule fragment_shader_module{lvk::CreateShaderModule(device, fragment_shader_code)};
 
@@ -616,7 +700,8 @@ private:
 
 private:
   lvk::camera::Camera m_camera{};
-  lvk::camera::OrbitCameraController m_orbit_camera_controller{&m_camera};
+  lvk::camera::YawPitchOrbitCameraController m_yaw_pitch_orbit_camera_controller{&m_camera};
+  lvk::camera::ArcballOrbitCameraController m_arcball_orbit_camera_controller{&m_camera};
   lvk::camera::FpsCameraController m_fps_camera_controller{&m_camera};
   lvk::ImGuiLayer m_imgui_layer{};
 
@@ -635,7 +720,7 @@ private:
   float m_perspective_fov_deg{60.0F};
   float m_orthographic_height{5.0F};
   lvk::camera::ProjectionType m_projection_type{lvk::camera::ProjectionType::Perspective};
-  CameraControlType m_camera_control_type{CameraControlType::Orbit};
+  CameraControlType m_camera_control_type{CameraControlType::YawPitchOrbit};
   bool m_enable_rotation{true};
 };
 }  // namespace

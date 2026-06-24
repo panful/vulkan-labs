@@ -97,6 +97,8 @@ void Camera::SetOrthographicHeight(double orthographic_height) {
 
 const glm::dvec3& Camera::GetPosition() const noexcept { return m_desc.position; }
 
+const glm::dquat& Camera::GetRotation() const noexcept { return m_desc.rotation; }
+
 glm::dvec3 Camera::GetForward() const noexcept { return glm::normalize(m_desc.rotation * glm::dvec3{0.0, 0.0, -1.0}); }
 
 glm::dvec3 Camera::GetRight() const noexcept { return glm::normalize(m_desc.rotation * glm::dvec3{1.0, 0.0, 0.0}); }
