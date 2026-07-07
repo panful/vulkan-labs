@@ -28,6 +28,7 @@ constexpr double k_epsilon{1e-12};
     return glm::dquat{1.0, 0.0, 0.0, 0.0};
   }
   if (dot_value < -1.0 + k_epsilon) {
+    // 反向向量的旋转轴不唯一，选择一个与 from 不平行的轴作为稳定退化处理。
     const glm::dvec3 axis{NormalizeOrFallback(glm::cross(safe_from, glm::dvec3{1.0, 0.0, 0.0}),
                                               glm::cross(safe_from, glm::dvec3{0.0, 1.0, 0.0}))};
     return glm::angleAxis(std::numbers::pi, axis);
@@ -92,12 +93,14 @@ void OrbitCameraController::ApplyCommonPanAndDolly(const CameraControllerInput& 
   }
 
   if (input.pan) {
+    // pan 距离随相机距离放大，远处观察时拖拽手感更接近屏幕空间平移。
     const double pan_scale{m_desc.pan_sensitivity * m_desc.distance};
     m_desc.target -= m_camera->GetRight() * input.cursor_delta_x * pan_scale;
     m_desc.target += m_camera->GetUp() * input.cursor_delta_y * pan_scale;
   }
 
   if (0.0 != input.scroll_delta_y) {
+    // 使用指数缩放让滚轮放大/缩小在不同距离下保持相近手感。
     const double factor{std::pow(1.0 - m_desc.dolly_sensitivity, input.scroll_delta_y)};
     m_desc.distance = std::clamp(m_desc.distance * factor, m_desc.min_distance, m_desc.max_distance);
   }
@@ -152,6 +155,7 @@ void YawPitchOrbitCameraController::SyncFromCameraAndTarget() {
     NormalizeOrFallback(glm::cross(reference_forward, world_up), glm::dvec3{1.0, 0.0, 0.0})};
   const double distance{glm::length(m_camera->GetPosition() - m_desc.target)};
   if (distance > k_epsilon) {
+    // 从外部相机同步时以真实 eye-target 距离为准，保持 UI 显示和控制器状态一致。
     m_desc.distance = std::clamp(distance, m_desc.min_distance, m_desc.max_distance);
   }
 
@@ -200,6 +204,7 @@ void ArcballOrbitCameraController::Update([[maybe_unused]] double delta_seconds,
     const glm::dquat rotation_delta{RotationFromTo(current_arcball_vector, m_last_arcball_vector)};
     const glm::dmat3 view_rotation_matrix{m_camera->GetViewMatrix()};
     const glm::dquat view_rotation{glm::quat_cast(view_rotation_matrix)};
+    // arcball delta 先在视图空间产生，再转换回世界空间累计到相机旋转。
     m_rotation = glm::normalize(glm::inverse(view_rotation) * rotation_delta * view_rotation * m_rotation);
     m_last_arcball_vector = current_arcball_vector;
   } else {
@@ -252,6 +257,7 @@ glm::dvec3 ArcballOrbitCameraController::MapToArcball(double mouse_x, double mou
 
   const double length_squared{point.x * point.x + point.y * point.y};
   if (length_squared <= 1.0) {
+    // 鼠标在虚拟球内时映射到球面，球外时归一化到边缘，避免旋转速度突变。
     point.z = std::sqrt(1.0 - length_squared);
   } else {
     point = glm::normalize(point);

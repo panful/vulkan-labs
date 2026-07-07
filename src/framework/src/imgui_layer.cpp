@@ -32,6 +32,7 @@ void ImGuiLayer::Initialize(const ImGuiLayerDesc& desc) {
   m_context = desc.context;
   m_swap_chain = desc.swap_chain;
 
+  // ImGui Vulkan 后端需要一个 descriptor pool 存放字体和用户纹理描述符。
   CreateDescriptorPool();
 
   ImGui::CreateContext();
@@ -39,6 +40,7 @@ void ImGuiLayer::Initialize(const ImGuiLayerDesc& desc) {
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   ImGui::StyleColorsDark();
 
+  // 传 false 表示不让 ImGui 后端直接安装 GLFW 回调，统一走 GlfwWindow 的订阅系统。
   ImGui_ImplGlfw_InitForVulkan(m_window->GetNativeWindow(), false);
   RegisterCallbacks();
 
@@ -69,6 +71,8 @@ void ImGuiLayer::Shutdown() noexcept {
     ImGui::DestroyContext();
     m_is_initialized = false;
   }
+  // 即使 Initialize 中途失败，也尝试解除已经注册的回调。
+  UnregisterCallbacks();
 
   if (nullptr != m_context) {
     VkDevice device{m_context->GetDevice()};
@@ -117,6 +121,7 @@ void ImGuiLayer::CreateDescriptorPool() {
     {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000},
   }};
 
+  // 使用 ImGui 官方示例常见的大 pool 配置，教学框架避免过早引入复杂的描述符池管理。
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -131,6 +136,7 @@ void ImGuiLayer::CreateDescriptorPool() {
 void ImGuiLayer::UploadFonts() {
   VkCommandPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  // 字体上传只执行一次，使用 transient command pool 表达短生命周期命令缓冲区。
   pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
   pool_info.queueFamilyIndex = m_context->GetGraphicsQueueFamily();
   CheckVkResult(vkCreateCommandPool(m_context->GetDevice(), &pool_info, nullptr, &m_upload_command_pool),
@@ -158,29 +164,43 @@ void ImGuiLayer::UploadFonts() {
   submit_info.pCommandBuffers = &command_buffer;
   CheckVkResult(vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE),
                 "failed to submit ImGui font upload command buffer");
+  // 初始化阶段直接等待设备空闲，简化教学代码中的一次性上传同步。
   CheckVkResult(vkDeviceWaitIdle(m_context->GetDevice()), "failed to wait for ImGui font upload");
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
 void ImGuiLayer::RegisterCallbacks() {
-  if (m_callbacks_registered) {
+  if (nullptr == m_window || GlfwWindow::k_invalid_callback_handle != m_callback_handles.front()) {
     return;
   }
 
   GLFWwindow* native_window{m_window->GetNativeWindow()};
-  m_window->AddCursorPositionCallback(
+  // ImGui 后端初始化时选择不安装 GLFW 回调，因此这里手动转发输入事件。
+  // 保存句柄是为了 Shutdown 时解除订阅，避免 swapchain 重建后重复转发。
+  m_callback_handles.at(0) = m_window->AddCursorPositionCallback(
     [native_window](double x, double y) { ImGui_ImplGlfw_CursorPosCallback(native_window, x, y); });
-  m_window->AddMouseButtonCallback([native_window](int button, int action, int mods) {
+  m_callback_handles.at(1) = m_window->AddMouseButtonCallback([native_window](int button, int action, int mods) {
     ImGui_ImplGlfw_MouseButtonCallback(native_window, button, action, mods);
   });
-  m_window->AddScrollCallback([native_window](double x_offset, double y_offset) {
+  m_callback_handles.at(2) = m_window->AddScrollCallback([native_window](double x_offset, double y_offset) {
     ImGui_ImplGlfw_ScrollCallback(native_window, x_offset, y_offset);
   });
-  m_window->AddKeyCallback([native_window](int key, int scancode, int action, int mods) {
+  m_callback_handles.at(3) = m_window->AddKeyCallback([native_window](int key, int scancode, int action, int mods) {
     ImGui_ImplGlfw_KeyCallback(native_window, key, scancode, action, mods);
   });
-  m_window->AddCharCallback(
+  m_callback_handles.at(4) = m_window->AddCharCallback(
     [native_window](uint32_t codepoint) { ImGui_ImplGlfw_CharCallback(native_window, codepoint); });
-  m_callbacks_registered = true;
+}
+
+void ImGuiLayer::UnregisterCallbacks() noexcept {
+  if (nullptr == m_window) {
+    m_callback_handles.fill(GlfwWindow::k_invalid_callback_handle);
+    return;
+  }
+
+  for (GlfwWindow::CallbackHandle callback_handle : m_callback_handles) {
+    m_window->RemoveCallback(callback_handle);
+  }
+  m_callback_handles.fill(GlfwWindow::k_invalid_callback_handle);
 }
 }  // namespace lvk

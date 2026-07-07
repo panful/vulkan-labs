@@ -1,3 +1,4 @@
+# 基础 Vulkan 教学框架：窗口、输入、Vulkan context、swapchain、shader 工具和 sample 主循环。
 add_library(lvk_framework STATIC)
 
 target_sources(lvk_framework
@@ -35,6 +36,7 @@ target_link_libraries(lvk_framework
         ${Vulkan_LIBRARIES}
 )
 
+# 相机模块单独成库，方便不使用脚手架主循环的样例也复用相机数学和控制器。
 add_library(lvk_camera STATIC)
 
 target_sources(lvk_camera
@@ -63,6 +65,7 @@ target_link_libraries(lvk_camera
         project_warnings
 )
 
+# ImGui 集成依赖默认 render pass 和窗口输入订阅，因此放在独立库中按需链接。
 add_library(lvk_imgui STATIC)
 
 target_sources(lvk_imgui
@@ -86,6 +89,7 @@ target_link_libraries(lvk_imgui
 )
 
 if(ENABLE_CLANG_TIDY)
+    # 与仓库级开关保持一致：启用后 framework 三个库都走同一套 clang-tidy 配置。
     set_target_properties(lvk_framework PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
     set_target_properties(lvk_camera PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
     set_target_properties(lvk_imgui PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")

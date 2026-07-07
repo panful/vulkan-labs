@@ -22,6 +22,7 @@ constexpr double k_epsilon{1e-12};
 }
 
 [[nodiscard]] glm::dvec3 GetReferenceForward(glm::dvec3 world_up) {
+  // 当 world_up 接近 Y 轴时，用 -Z 作为参考方向；否则用 Y 轴投影到水平面。
   const glm::dvec3 fallback_forward{std::abs(world_up.y) < 0.9 ? glm::dvec3{0.0, 1.0, 0.0}
                                                                : glm::dvec3{0.0, 0.0, -1.0}};
   return NormalizeOrFallback(fallback_forward - world_up * glm::dot(fallback_forward, world_up),
@@ -62,6 +63,7 @@ void FreeLookCameraController::SyncFromCamera() {
   const glm::dvec3 reference_forward{GetReferenceForward(world_up)};
   const glm::dvec3 reference_right{GetReferenceRight(reference_forward, world_up)};
 
+  // 从当前 forward 反推 yaw/pitch，保证切换控制器或重置相机后不会产生方向跳变。
   m_pitch = std::asin(up_component);
   m_yaw = std::atan2(glm::dot(planar_forward, reference_right), glm::dot(planar_forward, reference_forward));
 }
@@ -80,6 +82,7 @@ void FreeLookCameraController::ApplyLookDelta(double delta_x, double delta_y) {
   ValidateDesc();
   m_yaw += delta_x * m_desc.look_sensitivity;
   m_pitch -= delta_y * m_desc.look_sensitivity;
+  // 限制 pitch，避免 forward 与 world_up 平行时 right 向量退化。
   m_pitch = std::clamp(m_pitch, -m_desc.pitch_limit_rad, m_desc.pitch_limit_rad);
   ApplyRotationToCamera();
 }
@@ -149,6 +152,7 @@ void FpsCameraController::Update(double delta_seconds, const CameraControllerInp
 glm::dvec3 FpsCameraController::GetMovementDirection(const CameraControllerInput& input) const {
   glm::dvec3 movement{0.0};
   if (input.move_forward) {
+    // FPS 相机前后移动使用水平面方向，避免抬头时 W 键把相机带离地面。
     movement += GetPlanarForward();
   }
   if (input.move_backward) {
@@ -208,6 +212,7 @@ void FlyCameraController::Update(double delta_seconds, const CameraControllerInp
 glm::dvec3 FlyCameraController::GetMovementDirection(const CameraControllerInput& input) const {
   glm::dvec3 movement{0.0};
   if (input.move_forward) {
+    // Fly 相机沿真实 forward 飞行，适合自由浏览 3D 场景。
     movement += GetForward();
   }
   if (input.move_backward) {
@@ -230,8 +235,7 @@ glm::dvec3 FlyCameraController::GetMovementDirection(const CameraControllerInput
 
 void FlyCameraController::ValidateFlyDesc() const {
   ValidateDesc();
-  if (!IsFiniteNonNegative(m_fly_desc.move_speed) || !IsFinitePositive(m_fly_desc.fast_move_multiplier) ||
-      !IsFiniteNonNegative(m_fly_desc.roll_speed_rad)) {
+  if (!IsFiniteNonNegative(m_fly_desc.move_speed) || !IsFinitePositive(m_fly_desc.fast_move_multiplier)) {
     throw std::invalid_argument("invalid fly camera controller settings");
   }
 }

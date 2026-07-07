@@ -56,6 +56,7 @@ void Camera::LookAt(glm::dvec3 eye, glm::dvec3 target, glm::dvec3 world_up) {
   }
 
   const glm::dvec3 forward{glm::normalize(forward_vector)};
+  // 右手系相机本地 -Z 指向 forward，因此 basis 的第三列稍后使用 -forward。
   glm::dvec3 right{glm::cross(forward, glm::normalize(world_up))};
   if (LengthSquared(right) <= k_epsilon) {
     throw std::invalid_argument("camera up vector is parallel to view direction");
@@ -136,6 +137,7 @@ glm::dmat4 Camera::GetProjectionMatrix(ProjectionConvention convention) const {
 
   ValidatePerspective(m_desc.vertical_fov_rad, m_desc.aspect_ratio, near_plane, far_plane);
 
+  // 这里直接构造 Vulkan 兼容的投影矩阵：NDC 深度为 [0, 1]，Y 轴是否翻转由 convention 决定。
   const double y_scale{1.0 / std::tan(m_desc.vertical_fov_rad * 0.5)};
   const double x_scale{y_scale / m_desc.aspect_ratio};
   const double a{(far_plane * far_depth - near_plane * near_depth) / (near_plane - far_plane)};
@@ -154,6 +156,7 @@ GpuCameraMatrices Camera::GetGpuMatrices(ProjectionConvention convention) const 
   GpuCameraMatrices matrices{};
   const glm::dmat4 view{GetViewMatrix()};
   const glm::dmat4 projection{GetProjectionMatrix(convention)};
+  // GPU 侧通常只需要 float 精度；CPU 侧保留 double 方便相机控制器累计计算。
   matrices.view = glm::mat4{view};
   matrices.projection = glm::mat4{projection};
   matrices.view_projection = glm::mat4{projection * view};

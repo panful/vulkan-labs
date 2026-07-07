@@ -22,6 +22,7 @@ int VulkanSample::Run() {
   try {
     ApplicationDesc desc{};
     Configure(desc);
+    // 基类资源先初始化，派生样例在 OnCreate 中即可安全访问 context/window/swapchain。
     Initialize(desc);
     OnCreate();
     m_is_created = true;
@@ -122,8 +123,8 @@ void VulkanSample::EndDefaultRenderPass(FrameContext& frame_context) noexcept {
 void VulkanSample::Initialize(const ApplicationDesc& desc) {
   m_window = std::make_unique<GlfwWindow>(desc.width, desc.height, desc.title);
   m_window->SetResizeCallback([this](uint32_t width, uint32_t height) { OnFramebufferResize(width, height); });
-  m_window->AddScrollCallback(
-    [this](double x_offset, double y_offset) { m_input_adapter.AddScroll(x_offset, y_offset); });
+  static_cast<void>(m_window->AddScrollCallback(
+    [this](double x_offset, double y_offset) { m_input_adapter.AddScroll(x_offset, y_offset); }));
 
   m_context = std::make_unique<VulkanContext>(desc, *m_window);
   m_swap_chain = std::make_unique<SwapChain>(*m_context, *m_window);
@@ -151,6 +152,7 @@ void VulkanSample::MainLoop() {
 
 void VulkanSample::Cleanup() noexcept {
   if (m_context) {
+    // 教学框架使用简单粗暴的 idle 等待，保证派生类 OnDestroy 可以直接释放 Vulkan 资源。
     vkDeviceWaitIdle(m_context->GetDevice());
   }
 
@@ -199,6 +201,7 @@ void VulkanSample::CreateFrameResources() {
 
   VkFenceCreateInfo fence_info{};
   fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  // 首帧还没有提交任何 GPU 工作，使用 signaled fence 可以避免第一次 DrawFrame 卡住。
   fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
   for (size_t i{}; i < m_frame_resources.size(); ++i) {
@@ -236,7 +239,9 @@ void VulkanSample::CreateSwapChainSemaphores() {
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
   m_render_finished_semaphores.resize(GetSwapChain().GetImageCount(), VK_NULL_HANDLE);
+  m_image_in_flight_fences.assign(GetSwapChain().GetImageCount(), VK_NULL_HANDLE);
   for (VkSemaphore& semaphore : m_render_finished_semaphores) {
+    // render-finished semaphore 按 swapchain image 分配，避免同一图像的 present 等待错误复用。
     CheckVkResult(vkCreateSemaphore(GetContext().GetDevice(), &semaphore_info, nullptr, &semaphore),
                   "failed to create render finished semaphore");
   }
@@ -254,6 +259,7 @@ void VulkanSample::DestroySwapChainSemaphores() noexcept {
     }
   }
   m_render_finished_semaphores.clear();
+  m_image_in_flight_fences.clear();
 }
 
 void VulkanSample::DrawFrame() {
@@ -267,6 +273,7 @@ void VulkanSample::DrawFrame() {
   VkResult result{vkAcquireNextImageKHR(device, GetSwapChain().GetHandle(), std::numeric_limits<uint64_t>::max(),
                                         resources.image_available_semaphore, VK_NULL_HANDLE, &image_index)};
   if (VK_ERROR_OUT_OF_DATE_KHR == result) {
+    // 窗口尺寸变化后旧 swapchain 不再可用，本帧不录制命令，直接重建。
     RecreateSwapChain();
     return;
   }
@@ -275,10 +282,19 @@ void VulkanSample::DrawFrame() {
   }
 
   VkSemaphore render_finished_semaphore{m_render_finished_semaphores.at(image_index)};
+  VkFence& image_in_flight_fence{m_image_in_flight_fences.at(image_index)};
+  if (VK_NULL_HANDLE != image_in_flight_fence) {
+    // swapchain image 的数量通常不等于飞行帧数量；同一张图像再次被取到时，
+    // 必须等待上一次使用它的提交完成，避免覆盖仍在 GPU 使用的附件。
+    CheckVkResult(vkWaitForFences(device, 1, &image_in_flight_fence, VK_TRUE, std::numeric_limits<uint64_t>::max()),
+                  "failed to wait for swap chain image fence");
+  }
+  image_in_flight_fence = resources.in_flight_fence;
 
   CheckVkResult(vkResetFences(device, 1, &resources.in_flight_fence), "failed to reset in-flight fence");
   CheckVkResult(vkResetCommandBuffer(resources.command_buffer, 0), "failed to reset command buffer");
 
+  // 派生类的 OnRender 只负责录制命令；begin/end command buffer 由框架统一管理。
   VkCommandBufferBeginInfo begin_info{};
   begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   CheckVkResult(vkBeginCommandBuffer(resources.command_buffer, &begin_info), "failed to begin command buffer");
@@ -332,6 +348,7 @@ void VulkanSample::DrawFrame() {
 
 void VulkanSample::RecreateSwapChain() {
   vkDeviceWaitIdle(GetContext().GetDevice());
+  // 先通知派生类释放依赖旧 render pass/framebuffer 的资源，再销毁框架的 swapchain 资源。
   OnSwapChainCleanup();
   DestroySwapChainSemaphores();
   m_swap_chain->Recreate();

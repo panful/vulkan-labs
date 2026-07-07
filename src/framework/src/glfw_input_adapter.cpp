@@ -21,6 +21,7 @@ void GlfwInputAdapter::BeginFrame(GLFWwindow* window) {
     next.mouse_delta_x = next.mouse_x - m_previous_mouse_x;
     next.mouse_delta_y = next.mouse_y - m_previous_mouse_y;
   } else {
+    // 第一帧没有上一帧坐标，delta 保持 0，避免相机初始化时突然跳动。
     m_has_previous_mouse = true;
   }
 
@@ -29,6 +30,7 @@ void GlfwInputAdapter::BeginFrame(GLFWwindow* window) {
 
   next.scroll_delta_x = m_accumulated_scroll_x;
   next.scroll_delta_y = m_accumulated_scroll_y;
+  // 滚轮来自 GLFW 回调，按帧消费后清零，避免一次滚动影响多帧。
   m_accumulated_scroll_x = 0.0;
   m_accumulated_scroll_y = 0.0;
 

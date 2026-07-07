@@ -17,6 +17,7 @@ namespace {
 constexpr const char* k_validation_layer_name{"VK_LAYER_KHRONOS_validation"};
 
 void AppendUnique(std::vector<const char*>& values, const char* value) {
+  // Vulkan 扩展列表不允许重复；这里集中去重，避免样例 Configure 中重复添加同一扩展。
   const auto iter{std::ranges::find_if(values, [value](const char* entry) { return 0 == std::strcmp(entry, value); })};
   if (iter == values.end()) {
     values.emplace_back(value);
@@ -107,6 +108,7 @@ void VulkanContext::CreateInstance(const ApplicationDesc& desc) {
 
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   if (m_enable_validation_layers) {
+    // 把 debug messenger create info 挂到 instance pNext，可捕获 instance 创建/销毁期间的验证信息。
     PopulateDebugMessengerCreateInfo(debug_create_info);
     create_info.enabledLayerCount = static_cast<uint32_t>(m_validation_layers.size());
     create_info.ppEnabledLayerNames = m_validation_layers.data();
@@ -162,6 +164,7 @@ void VulkanContext::CreateLogicalDevice() {
 
   float queue_priority{1.0F};
   for (uint32_t queue_family : unique_queue_families) {
+    // graphics 与 present 可能是同一个 queue family，使用 set 可以避免重复创建队列请求。
     VkDeviceQueueCreateInfo queue_create_info{};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_info.queueFamilyIndex = queue_family;
@@ -219,6 +222,7 @@ std::vector<const char*> VulkanContext::GetRequiredInstanceExtensions(const Appl
 
   std::vector<const char*> extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
   if (m_enable_validation_layers) {
+    // debug utils 只有在 validation 开启时才是必需扩展，Release 样例保持最小扩展集。
     AppendUnique(extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
 
@@ -245,6 +249,7 @@ QueueFamilyIndices VulkanContext::FindQueueFamilies(VkPhysicalDevice physical_de
     }
 
     VkBool32 present_support{VK_FALSE};
+    // present 能力依赖具体 surface，不能只看 queue family 的通用属性。
     CheckVkResult(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, m_surface, &present_support),
                   "failed to query surface support");
     if (VK_TRUE == present_support) {
@@ -270,6 +275,7 @@ bool VulkanContext::IsDeviceSuitable(VkPhysicalDevice physical_device) const {
   vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, m_surface, &format_count, nullptr);
   uint32_t present_mode_count{};
   vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, m_surface, &present_mode_count, nullptr);
+  // 仅支持队列和扩展还不够，swapchain 至少还需要一个 surface format 和 present mode。
   return 0 != format_count && 0 != present_mode_count;
 }
 
@@ -299,6 +305,7 @@ void VulkanContext::PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreate
   create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+  // 教学框架只输出 warning/error，避免 info/verbose 消息淹没真正重要的验证错误。
   create_info.pfnUserCallback = DebugCallback;
 }
 

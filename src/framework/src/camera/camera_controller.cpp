@@ -13,5 +13,7 @@ Camera* CameraController::GetCamera() noexcept { return m_camera; }
 
 const Camera* CameraController::GetCamera() const noexcept { return m_camera; }
 
-void CameraController::ResetInteractionState() noexcept {}
+void CameraController::ResetInteractionState() noexcept {
+  // 基类没有跨帧交互状态；需要清理拖拽/arcball 状态的控制器在派生类中覆盖。
+}
 }  // namespace lvk::camera

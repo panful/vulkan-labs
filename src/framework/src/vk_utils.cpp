@@ -64,6 +64,7 @@ uint32_t FindMemoryType(VkPhysicalDevice physical_device, uint32_t type_filter, 
   vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
 
   for (uint32_t i{}; i < memory_properties.memoryTypeCount; ++i) {
+    // type_filter 是 Vulkan 返回的候选 bitmask，properties 是调用方需要的内存属性。
     const bool is_type_supported{(type_filter & (uint32_t{1} << i)) != 0U};
     const bool has_properties{(memory_properties.memoryTypes[i].propertyFlags & properties) == properties};
     if (is_type_supported && has_properties) {

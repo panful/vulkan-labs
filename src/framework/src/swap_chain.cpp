@@ -11,15 +11,17 @@
 
 namespace lvk {
 SwapChain::SwapChain(const VulkanContext& context, const GlfwWindow& window) : m_context(context), m_window(window) {
-  Create();
+  Create(VK_NULL_HANDLE);
 }
 
-SwapChain::~SwapChain() noexcept { Cleanup(); }
+SwapChain::~SwapChain() noexcept { Cleanup(true); }
 
 void SwapChain::Recreate() {
+  // Windows 最小化时 framebuffer 可能为 0x0，此时创建 swapchain 会失败；先等待窗口恢复。
   m_window.WaitForVisibleFramebuffer();
-  Cleanup();
-  Create();
+  VkSwapchainKHR old_swap_chain{m_swap_chain};
+  Cleanup(false);
+  Create(old_swap_chain);
 }
 
 VkSwapchainKHR SwapChain::GetHandle() const noexcept { return m_swap_chain; }
@@ -36,7 +38,7 @@ VkFramebuffer SwapChain::GetFramebuffer(uint32_t image_index) const {
 
 uint32_t SwapChain::GetImageCount() const noexcept { return static_cast<uint32_t>(m_images.size()); }
 
-void SwapChain::Create() {
+void SwapChain::Create(VkSwapchainKHR old_swap_chain) {
   const SwapChainSupportDetails support{QuerySupport()};
   if (support.formats.empty() || support.present_modes.empty()) {
     throw std::runtime_error("swap chain support is incomplete");
@@ -48,6 +50,7 @@ void SwapChain::Create() {
 
   uint32_t image_count{support.capabilities.minImageCount + 1U};
   if (0U != support.capabilities.maxImageCount) {
+    // Vulkan 允许 maxImageCount 为 0 表示“不限制”，否则必须夹到驱动允许范围内。
     image_count = std::min(image_count, support.capabilities.maxImageCount);
   }
 
@@ -66,6 +69,7 @@ void SwapChain::Create() {
     m_context.GetPresentQueueFamily(),
   };
   if (m_context.GetGraphicsQueueFamily() != m_context.GetPresentQueueFamily()) {
+    // 教学框架优先选择简单的 concurrent 模式，避免在入门阶段引入显式队列族所有权转移。
     create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
     create_info.queueFamilyIndexCount = static_cast<uint32_t>(queue_family_indices.size());
     create_info.pQueueFamilyIndices = queue_family_indices.data();
@@ -77,10 +81,14 @@ void SwapChain::Create() {
   create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
   create_info.presentMode = present_mode;
   create_info.clipped = VK_TRUE;
-  create_info.oldSwapchain = VK_NULL_HANDLE;
+  // 重建时把旧 swapchain 交给驱动，便于驱动复用内部资源；新对象创建成功后再销毁旧对象。
+  create_info.oldSwapchain = old_swap_chain;
 
   CheckVkResult(vkCreateSwapchainKHR(m_context.GetDevice(), &create_info, nullptr, &m_swap_chain),
                 "failed to create swap chain");
+  if (VK_NULL_HANDLE != old_swap_chain) {
+    vkDestroySwapchainKHR(m_context.GetDevice(), old_swap_chain, nullptr);
+  }
 
   CheckVkResult(vkGetSwapchainImagesKHR(m_context.GetDevice(), m_swap_chain, &image_count, nullptr),
                 "failed to get swap chain image count");
@@ -97,9 +105,10 @@ void SwapChain::Create() {
   CreateFramebuffers();
 }
 
-void SwapChain::Cleanup() noexcept {
+void SwapChain::Cleanup(bool destroy_swap_chain) noexcept {
   VkDevice device{m_context.GetDevice()};
 
+  // 销毁顺序与创建依赖相反：framebuffer 依赖 render pass/image view，depth image 依赖 memory。
   for (VkFramebuffer framebuffer : m_framebuffers) {
     vkDestroyFramebuffer(device, framebuffer, nullptr);
   }
@@ -130,7 +139,7 @@ void SwapChain::Cleanup() noexcept {
   }
   m_image_views.clear();
 
-  if (VK_NULL_HANDLE != m_swap_chain) {
+  if (destroy_swap_chain && VK_NULL_HANDLE != m_swap_chain) {
     vkDestroySwapchainKHR(device, m_swap_chain, nullptr);
     m_swap_chain = VK_NULL_HANDLE;
   }
@@ -164,6 +173,7 @@ void SwapChain::CreateImageViews() {
 void SwapChain::CreateDepthResources() {
   m_depth_format = FindDepthFormat();
 
+  // 默认 render pass 总是带 depth attachment，方便 3D 教学样例直接使用。
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -252,6 +262,7 @@ void SwapChain::CreateRenderPass() {
   dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
   dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  // 这个依赖覆盖 color/depth 首次写入，避免 layout transition 与附件写入之间缺同步。
 
   VkRenderPassCreateInfo render_pass_info{};
   const std::array<VkAttachmentDescription, 2> attachments{color_attachment, depth_attachment};
@@ -359,6 +370,7 @@ VkPresentModeKHR SwapChain::ChoosePresentMode(const std::vector<VkPresentModeKHR
 
 VkExtent2D SwapChain::ChooseExtent(const VkSurfaceCapabilitiesKHR& capabilities) const noexcept {
   if (std::numeric_limits<uint32_t>::max() != capabilities.currentExtent.width) {
+    // 部分平台固定 surface extent，必须直接使用驱动给出的尺寸。
     return capabilities.currentExtent;
   }
 
