@@ -7,7 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-CPP_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
+SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
+HEADER_SUFFIXES = {".h", ".hpp"}
+CPP_SUFFIXES = SOURCE_SUFFIXES | HEADER_SUFFIXES
 WARNINGS_AS_ERRORS = ",".join(
     [
         "readability-identifier-naming",
@@ -108,6 +110,9 @@ def main() -> int:
     for relative_path in candidate_files(sys.argv[1:]):
         file_path = (repo_root / relative_path).resolve()
         if not file_path.is_file() or file_path.suffix.lower() not in CPP_SUFFIXES:
+            continue
+
+        if file_path not in database_entries and file_path.suffix.lower() in HEADER_SUFFIXES:
             continue
 
         if file_path not in database_entries:
