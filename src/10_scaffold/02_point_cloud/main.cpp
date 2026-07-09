@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "glm/ext/vector_double3.hpp"
 #include <vulkan/vulkan.h>
 // clang-format on
 
@@ -35,24 +36,6 @@
 #include <vector>
 
 namespace {
-[[nodiscard]] lvk::camera::CameraControllerInput MapCameraControllerInput(const lvk::InputState& input_state,
-                                                                          bool wants_mouse) noexcept {
-  lvk::camera::CameraControllerInput input{};
-  input.cursor_x = input_state.mouse_x;
-  input.cursor_y = input_state.mouse_y;
-
-  if (!wants_mouse) {
-    input.cursor_delta_x = input_state.mouse_delta_x;
-    input.cursor_delta_y = input_state.mouse_delta_y;
-    input.scroll_delta_y = input_state.scroll_delta_y;
-    input.rotate = input_state.left_mouse_down;
-    input.pan = input_state.middle_mouse_down || input_state.right_mouse_down;
-    input.look = input_state.right_mouse_down;
-  }
-
-  return input;
-}
-
 // float3(4x3) + uint32_t(4x1) = 16 bytes
 struct Vertex {
   glm::vec3 position{};
@@ -83,41 +66,36 @@ struct Vertex {
 
 static_assert(sizeof(Vertex) == 16);
 
-struct PointCloudBounds {
-  glm::dvec3 min{};
-  glm::dvec3 max{};
+class BoundingBox {
+public:
+  [[nodiscard]] glm::dvec3 Min() const noexcept { return m_min; }
+  [[nodiscard]] glm::dvec3 Max() const noexcept { return m_max; }
+
+  [[nodiscard]] glm::dvec3 GetBoundsCenter() const noexcept { return (m_min + m_max) * 0.5; }
+  [[nodiscard]] double GetBoundsRadius() const noexcept { return std::max(glm::length((m_max - m_min) * 0.5), 0.001); }
+
+  [[nodiscard]] static BoundingBox ComputeBoundingBox(const std::vector<Vertex>& vertices) {
+    if (vertices.empty()) {
+      throw std::runtime_error("point cloud contains no vertices");
+    }
+
+    BoundingBox bounds{};
+    bounds.m_min = glm::dvec3{vertices.front().position};
+    bounds.m_max = bounds.m_min;
+
+    for (const Vertex& vertex : vertices) {
+      const glm::dvec3 position{vertex.position};
+      bounds.m_min = glm::min(bounds.m_min, position);
+      bounds.m_max = glm::max(bounds.m_max, position);
+    }
+
+    return bounds;
+  }
+
+private:
+  glm::dvec3 m_min{-1.0};
+  glm::dvec3 m_max{1.0};
 };
-
-[[nodiscard]] constexpr uint32_t PackRgba8(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha = 255) noexcept {
-  return static_cast<uint32_t>(red) | (static_cast<uint32_t>(green) << 8U) | (static_cast<uint32_t>(blue) << 16U) |
-         (static_cast<uint32_t>(alpha) << 24U);
-}
-
-[[nodiscard]] glm::dvec3 GetBoundsCenter(const PointCloudBounds& bounds) noexcept {
-  return (bounds.min + bounds.max) * 0.5;
-}
-
-[[nodiscard]] double GetBoundsRadius(const PointCloudBounds& bounds) noexcept {
-  return std::max(glm::length((bounds.max - bounds.min) * 0.5), 0.001);
-}
-
-[[nodiscard]] PointCloudBounds ComputePointCloudBounds(const std::vector<Vertex>& vertices) {
-  if (vertices.empty()) {
-    throw std::runtime_error("point cloud contains no vertices");
-  }
-
-  PointCloudBounds bounds{};
-  bounds.min = glm::dvec3{vertices.front().position};
-  bounds.max = bounds.min;
-
-  for (const Vertex& vertex : vertices) {
-    const glm::dvec3 position{vertex.position};
-    bounds.min = glm::min(bounds.min, position);
-    bounds.max = glm::max(bounds.max, position);
-  }
-
-  return bounds;
-}
 
 class PlyVertexLoader final {
 public:
@@ -159,6 +137,12 @@ public:
   }
 
 private:
+  [[nodiscard]] static constexpr uint32_t PackRgba8(uint8_t red, uint8_t green, uint8_t blue,
+                                                    uint8_t alpha = 255) noexcept {
+    return static_cast<uint32_t>(red) | (static_cast<uint32_t>(green) << 8U) | (static_cast<uint32_t>(blue) << 16U) |
+           (static_cast<uint32_t>(alpha) << 24U);
+  }
+
   [[nodiscard]] static bool HasVertexProperties(const std::vector<tinyply::PlyElement>& elements,
                                                 const std::vector<std::string>& property_names) {
     const auto vertex_element{
@@ -269,22 +253,24 @@ private:
   }
 };
 
-struct UniformBufferObject {
-  glm::mat4 model{1.0F};
-  glm::mat4 view{1.0F};
-  glm::mat4 projection{1.0F};
-};
-
-struct BufferResource {
-  VkBuffer buffer{VK_NULL_HANDLE};
-  VkDeviceMemory memory{VK_NULL_HANDLE};
-  void* mapped_memory{nullptr};
-};
-
 class PointCloudSample final : public lvk::VulkanSample {
+  struct UniformBufferObject {
+    glm::mat4 model{1.0F};
+    glm::mat4 view{1.0F};
+    glm::mat4 projection{1.0F};
+  };
+
+  struct BufferResource {
+    VkBuffer buffer{VK_NULL_HANDLE};
+    VkDeviceMemory memory{VK_NULL_HANDLE};
+    void* mapped_memory{nullptr};
+  };
+
 public:
-  PointCloudSample(std::vector<Vertex> vertices, PointCloudBounds bounds)
-      : m_vertices(std::move(vertices)), m_point_cloud_bounds(bounds) {}
+  PointCloudSample(std::vector<Vertex> vertices, BoundingBox bounds)
+      : m_vertices(std::move(vertices)),
+        m_vertex_count(static_cast<uint32_t>(m_vertices.size())),
+        m_point_cloud_bounds(bounds) {}
 
 protected:
   void Configure(lvk::ApplicationDesc& desc) override {
@@ -368,13 +354,31 @@ protected:
   }
 
 private:
+  [[nodiscard]] static lvk::camera::CameraControllerInput MapCameraControllerInput(const lvk::InputState& input_state,
+                                                                                   bool wants_mouse) noexcept {
+    lvk::camera::CameraControllerInput input{};
+    input.cursor_x = input_state.mouse_x;
+    input.cursor_y = input_state.mouse_y;
+
+    if (!wants_mouse) {
+      input.cursor_delta_x = input_state.mouse_delta_x;
+      input.cursor_delta_y = input_state.mouse_delta_y;
+      input.scroll_delta_y = input_state.scroll_delta_y;
+      input.rotate = input_state.left_mouse_down;
+      input.pan = input_state.middle_mouse_down || input_state.right_mouse_down;
+      input.look = input_state.right_mouse_down;
+    }
+
+    return input;
+  }
+
   void InitializeCamera() {
     m_yaw_pitch_orbit_camera_controller.Attach(&m_camera);
     lvk::camera::OrbitCameraControllerDesc desc{};
-    desc.target = GetBoundsCenter(m_point_cloud_bounds);
+    desc.target = m_point_cloud_bounds.GetBoundsCenter();
     desc.distance = GetCameraFitDistance();
-    desc.min_distance = std::max(GetBoundsRadius(m_point_cloud_bounds) * 0.001, 0.001);
-    desc.max_distance = std::max(desc.distance * 10.0, GetBoundsRadius(m_point_cloud_bounds) * 20.0);
+    desc.min_distance = std::max(m_point_cloud_bounds.GetBoundsRadius() * 0.001, 0.001);
+    desc.max_distance = std::max(desc.distance * 10.0, m_point_cloud_bounds.GetBoundsRadius() * 20.0);
     ApplyOrbitDesc(desc);
     ResetCameraPose();
   }
@@ -382,7 +386,7 @@ private:
   void ApplyCameraProjection() {
     const VkExtent2D extent{GetSwapChain().GetExtent()};
     const double aspect_ratio{static_cast<double>(extent.width) / static_cast<double>(extent.height)};
-    const double bounds_radius{GetBoundsRadius(m_point_cloud_bounds)};
+    const double bounds_radius{m_point_cloud_bounds.GetBoundsRadius()};
     const double near_plane{std::max(bounds_radius * 0.0001, 0.001)};
     const double far_plane{std::max(bounds_radius * 20.0, 100.0)};
     m_camera.SetPerspective(glm::radians(static_cast<double>(m_perspective_fov_deg)), aspect_ratio, near_plane,
@@ -391,7 +395,7 @@ private:
 
   [[nodiscard]] double GetCameraFitDistance() const noexcept {
     const double half_fov_rad{glm::radians(static_cast<double>(m_perspective_fov_deg)) * 0.5};
-    return GetBoundsRadius(m_point_cloud_bounds) / std::sin(half_fov_rad);
+    return m_point_cloud_bounds.GetBoundsRadius() / std::sin(half_fov_rad);
   }
 
   void UpdateCameraAspectRatio() {
@@ -412,7 +416,7 @@ private:
   }
 
   void ResetCameraPose() {
-    const glm::dvec3 target{GetBoundsCenter(m_point_cloud_bounds)};
+    const glm::dvec3 target{m_point_cloud_bounds.GetBoundsCenter()};
     const double distance{GetCameraFitDistance()};
     const glm::dvec3 view_offset{glm::normalize(glm::dvec3{0.0, 0.35, 1.0}) * distance};
     ApplyCameraProjection();
@@ -564,7 +568,6 @@ private:
   }
 
   void CreateVertexBuffer() {
-    m_vertex_count = static_cast<uint32_t>(m_vertices.size());
     const VkDeviceSize buffer_size{sizeof(m_vertices.front()) * m_vertices.size()};
 
     BufferResource staging_buffer{};
@@ -815,8 +818,6 @@ private:
   lvk::camera::YawPitchOrbitCameraController m_yaw_pitch_orbit_camera_controller{&m_camera};
   lvk::ImGuiLayer m_imgui_layer{};
 
-  uint32_t m_vertex_count{};
-  BufferResource m_vertex_buffer{};
   std::vector<BufferResource> m_uniform_buffers{};
   VkDescriptorSetLayout m_descriptor_set_layout{VK_NULL_HANDLE};
   VkDescriptorPool m_descriptor_pool{VK_NULL_HANDLE};
@@ -824,15 +825,17 @@ private:
   VkPipelineLayout m_pipeline_layout{VK_NULL_HANDLE};
   VkPipeline m_graphics_pipeline{VK_NULL_HANDLE};
 
+  BufferResource m_vertex_buffer{};
+  std::vector<Vertex> m_vertices{};
+  uint32_t m_vertex_count{};
+  BoundingBox m_point_cloud_bounds{};
+
   std::array<float, 4> m_clear_color{0.1F, 0.2F, 0.3F, 1.0F};
   float m_perspective_fov_deg{60.0F};
   float m_fps_elapsed_seconds{};
   float m_display_fps{};
   float m_frame_time_ms{};
   uint32_t m_fps_frame_count{};
-
-  std::vector<Vertex> m_vertices{};
-  PointCloudBounds m_point_cloud_bounds{};
 };
 }  // namespace
 
@@ -844,7 +847,7 @@ int main(int argc, char** argv) {
     }
 
     std::vector<Vertex> vertices{PlyVertexLoader::Load(argv[1])};
-    PointCloudBounds bounds{ComputePointCloudBounds(vertices)};
+    BoundingBox bounds{BoundingBox::ComputeBoundingBox(vertices)};
 
     std::clog << "Loaded " << vertices.size() << " vertices from " << argv[1] << '\n';
 
@@ -852,6 +855,9 @@ int main(int argc, char** argv) {
     return sample.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
+    return EXIT_FAILURE;
+  } catch (...) {
+    std::cerr << "Unknown error occurred\n";
     return EXIT_FAILURE;
   }
 }
