@@ -1,1 +1,2 @@
 add_subdirectory(01_interactive_cube)
+add_subdirectory(02_point_cloud)
