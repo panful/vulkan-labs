@@ -15,18 +15,26 @@
 #include <lvk/vk_utils.h>
 #include <lvk/vulkan_context.h>
 #include <lvk/vulkan_sample.h>
+#define TINYPLY_IMPLEMENTATION
+#include <tiny_ply/tinyply.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
+#include <fstream>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
-[[nodiscard]] glm::dvec3 GetCameraTarget() noexcept { return {0.0, 0.0, 0.0}; }
-
 [[nodiscard]] lvk::camera::CameraControllerInput MapCameraControllerInput(const lvk::InputState& input_state,
                                                                           bool wants_mouse) noexcept {
   lvk::camera::CameraControllerInput input{};
@@ -75,10 +83,191 @@ struct Vertex {
 
 static_assert(sizeof(Vertex) == 16);
 
+struct PointCloudBounds {
+  glm::dvec3 min{};
+  glm::dvec3 max{};
+};
+
 [[nodiscard]] constexpr uint32_t PackRgba8(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha = 255) noexcept {
   return static_cast<uint32_t>(red) | (static_cast<uint32_t>(green) << 8U) | (static_cast<uint32_t>(blue) << 16U) |
          (static_cast<uint32_t>(alpha) << 24U);
 }
+
+[[nodiscard]] glm::dvec3 GetBoundsCenter(const PointCloudBounds& bounds) noexcept {
+  return (bounds.min + bounds.max) * 0.5;
+}
+
+[[nodiscard]] double GetBoundsRadius(const PointCloudBounds& bounds) noexcept {
+  return std::max(glm::length((bounds.max - bounds.min) * 0.5), 0.001);
+}
+
+[[nodiscard]] PointCloudBounds ComputePointCloudBounds(const std::vector<Vertex>& vertices) {
+  if (vertices.empty()) {
+    throw std::runtime_error("point cloud contains no vertices");
+  }
+
+  PointCloudBounds bounds{};
+  bounds.min = glm::dvec3{vertices.front().position};
+  bounds.max = bounds.min;
+
+  for (const Vertex& vertex : vertices) {
+    const glm::dvec3 position{vertex.position};
+    bounds.min = glm::min(bounds.min, position);
+    bounds.max = glm::max(bounds.max, position);
+  }
+
+  return bounds;
+}
+
+class PlyVertexLoader final {
+public:
+  [[nodiscard]] static std::vector<Vertex> Load(std::string_view file_path) {
+    std::ifstream file{std::string{file_path}, std::ios::binary};
+    if (!file) {
+      throw std::runtime_error("failed to open PLY file");
+    }
+
+    tinyply::PlyFile ply_file{};
+    ply_file.parse_header(file);
+    const std::vector<tinyply::PlyElement> elements{ply_file.get_elements()};
+
+    std::shared_ptr<tinyply::PlyData> positions{
+      ply_file.request_properties_from_element("vertex", std::vector<std::string>{"x", "y", "z"})};
+
+    std::shared_ptr<tinyply::PlyData> colors{};
+    if (HasVertexProperties(elements, std::vector<std::string>{"red", "green", "blue"})) {
+      colors = ply_file.request_properties_from_element("vertex", std::vector<std::string>{"red", "green", "blue"});
+    } else if (HasVertexProperties(elements, std::vector<std::string>{"r", "g", "b"})) {
+      colors = ply_file.request_properties_from_element("vertex", std::vector<std::string>{"r", "g", "b"});
+    }
+
+    ply_file.read(file);
+
+    std::vector<Vertex> vertices{};
+    FillPositions(*positions, vertices);
+    if (colors) {
+      FillColors(*colors, vertices);
+    } else {
+      FillDefaultColors(vertices);
+    }
+
+    if (vertices.empty()) {
+      throw std::runtime_error("PLY file contains no vertices");
+    }
+
+    return vertices;
+  }
+
+private:
+  [[nodiscard]] static bool HasVertexProperties(const std::vector<tinyply::PlyElement>& elements,
+                                                const std::vector<std::string>& property_names) {
+    const auto vertex_element{
+      std::ranges::find_if(elements, [](const tinyply::PlyElement& element) { return "vertex" == element.name; })};
+    if (vertex_element == elements.end()) {
+      return false;
+    }
+
+    return std::ranges::all_of(property_names, [&vertex_element](const std::string& property_name) {
+      return vertex_element->properties.end() !=
+             std::ranges::find_if(vertex_element->properties, [&property_name](const tinyply::PlyProperty& property) {
+               return property_name == property.name;
+             });
+    });
+  }
+
+  [[nodiscard]] static uint8_t ConvertColorComponent(float value) noexcept {
+    const float scaled_value{value <= 1.0F ? value * 255.0F : value};
+    return static_cast<uint8_t>(std::clamp(scaled_value, 0.0F, 255.0F));
+  }
+
+  [[nodiscard]] static uint8_t ConvertColorComponent(double value) noexcept {
+    const double scaled_value{value <= 1.0 ? value * 255.0 : value};
+    return static_cast<uint8_t>(std::clamp(scaled_value, 0.0, 255.0));
+  }
+
+  [[nodiscard]] static uint8_t ConvertColorComponent(uint16_t value) noexcept {
+    if (value <= uint16_t{255}) {
+      return static_cast<uint8_t>(value);
+    }
+    return static_cast<uint8_t>(static_cast<uint32_t>(value) * 255U / 65535U);
+  }
+
+  template <typename T>
+  [[nodiscard]] static uint8_t ConvertColorComponent(T value) noexcept {
+    return static_cast<uint8_t>(
+      std::clamp(static_cast<uint32_t>(value), uint32_t{}, static_cast<uint32_t>(uint8_t{255})));
+  }
+
+  template <typename PositionType>
+  static void FillPositions(const tinyply::PlyData& positions, std::vector<Vertex>& vertices) {
+    if (0U == positions.count || positions.buffer.size_bytes() != positions.count * sizeof(PositionType) * 3U) {
+      throw std::runtime_error("PLY vertex positions must contain x, y and z per vertex");
+    }
+
+    const size_t vertex_count{positions.count};
+    vertices.resize(vertex_count);
+    const PositionType* position_values{reinterpret_cast<const PositionType*>(positions.buffer.get_const())};
+    for (size_t i{}; i < vertex_count; ++i) {
+      vertices.at(i).position = {
+        static_cast<float>(position_values[(i * 3U) + 0U]),
+        static_cast<float>(position_values[(i * 3U) + 1U]),
+        static_cast<float>(position_values[(i * 3U) + 2U]),
+      };
+    }
+  }
+
+  template <typename ColorType>
+  static void FillColors(const tinyply::PlyData& colors, std::vector<Vertex>& vertices) {
+    if (colors.count != vertices.size() || colors.buffer.size_bytes() != vertices.size() * sizeof(ColorType) * 3U) {
+      throw std::runtime_error("PLY vertex colors must contain red, green and blue per vertex");
+    }
+
+    const ColorType* color_values{reinterpret_cast<const ColorType*>(colors.buffer.get_const())};
+    for (size_t i{}; i < vertices.size(); ++i) {
+      vertices.at(i).color = PackRgba8(ConvertColorComponent(color_values[(i * 3U) + 0U]),
+                                       ConvertColorComponent(color_values[(i * 3U) + 1U]),
+                                       ConvertColorComponent(color_values[(i * 3U) + 2U]));
+    }
+  }
+
+  static void FillDefaultColors(std::vector<Vertex>& vertices) {
+    for (Vertex& vertex : vertices) {
+      vertex.color = PackRgba8(255, 255, 255);
+    }
+  }
+
+  static void FillPositions(const tinyply::PlyData& positions, std::vector<Vertex>& vertices) {
+    switch (positions.t) {
+      case tinyply::Type::FLOAT32:
+        FillPositions<float>(positions, vertices);
+        return;
+      case tinyply::Type::FLOAT64:
+        FillPositions<double>(positions, vertices);
+        return;
+      default:
+        throw std::runtime_error("PLY vertex positions must use float or double properties");
+    }
+  }
+
+  static void FillColors(const tinyply::PlyData& colors, std::vector<Vertex>& vertices) {
+    switch (colors.t) {
+      case tinyply::Type::UINT8:
+        FillColors<uint8_t>(colors, vertices);
+        return;
+      case tinyply::Type::UINT16:
+        FillColors<uint16_t>(colors, vertices);
+        return;
+      case tinyply::Type::FLOAT32:
+        FillColors<float>(colors, vertices);
+        return;
+      case tinyply::Type::FLOAT64:
+        FillColors<double>(colors, vertices);
+        return;
+      default:
+        throw std::runtime_error("PLY vertex colors must use uint8, uint16, float or double properties");
+    }
+  }
+};
 
 struct UniformBufferObject {
   glm::mat4 model{1.0F};
@@ -94,7 +283,8 @@ struct BufferResource {
 
 class PointCloudSample final : public lvk::VulkanSample {
 public:
-  PointCloudSample(std::vector<Vertex> vertices) : m_vertices(std::move(vertices)) {}
+  PointCloudSample(std::vector<Vertex> vertices, PointCloudBounds bounds)
+      : m_vertices(std::move(vertices)), m_point_cloud_bounds(bounds) {}
 
 protected:
   void Configure(lvk::ApplicationDesc& desc) override {
@@ -125,6 +315,7 @@ protected:
     const lvk::camera::CameraControllerInput camera_input{
       MapCameraControllerInput(input_state, m_imgui_layer.WantsMouse())};
 
+    UpdateFrameStats(delta_seconds);
     UpdateOrbitViewportSize();
     m_yaw_pitch_orbit_camera_controller.Update(delta_seconds, camera_input);
   }
@@ -178,21 +369,29 @@ protected:
 
 private:
   void InitializeCamera() {
-    ResetCameraPose();
-
     m_yaw_pitch_orbit_camera_controller.Attach(&m_camera);
     lvk::camera::OrbitCameraControllerDesc desc{};
-    desc.distance = 4.5;
-    desc.min_distance = 1.0;
-    desc.max_distance = 50.0;
+    desc.target = GetBoundsCenter(m_point_cloud_bounds);
+    desc.distance = GetCameraFitDistance();
+    desc.min_distance = std::max(GetBoundsRadius(m_point_cloud_bounds) * 0.001, 0.001);
+    desc.max_distance = std::max(desc.distance * 10.0, GetBoundsRadius(m_point_cloud_bounds) * 20.0);
     ApplyOrbitDesc(desc);
-    m_yaw_pitch_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    ResetCameraPose();
   }
 
   void ApplyCameraProjection() {
     const VkExtent2D extent{GetSwapChain().GetExtent()};
     const double aspect_ratio{static_cast<double>(extent.width) / static_cast<double>(extent.height)};
-    m_camera.SetPerspective(glm::radians(static_cast<double>(m_perspective_fov_deg)), aspect_ratio, 0.01, 100.0);
+    const double bounds_radius{GetBoundsRadius(m_point_cloud_bounds)};
+    const double near_plane{std::max(bounds_radius * 0.0001, 0.001)};
+    const double far_plane{std::max(bounds_radius * 20.0, 100.0)};
+    m_camera.SetPerspective(glm::radians(static_cast<double>(m_perspective_fov_deg)), aspect_ratio, near_plane,
+                            far_plane);
+  }
+
+  [[nodiscard]] double GetCameraFitDistance() const noexcept {
+    const double half_fov_rad{glm::radians(static_cast<double>(m_perspective_fov_deg)) * 0.5};
+    return GetBoundsRadius(m_point_cloud_bounds) / std::sin(half_fov_rad);
   }
 
   void UpdateCameraAspectRatio() {
@@ -213,17 +412,34 @@ private:
   }
 
   void ResetCameraPose() {
+    const glm::dvec3 target{GetBoundsCenter(m_point_cloud_bounds)};
+    const double distance{GetCameraFitDistance()};
+    const glm::dvec3 view_offset{glm::normalize(glm::dvec3{0.0, 0.35, 1.0}) * distance};
     ApplyCameraProjection();
-    m_camera.LookAt({0.0, 1.5, 4.0}, GetCameraTarget());
-    m_yaw_pitch_orbit_camera_controller.Focus(GetCameraTarget(), 4.5);
+    m_camera.LookAt(target + view_offset, target);
+    m_yaw_pitch_orbit_camera_controller.Focus(target, distance);
   }
 
   void InitializeImGui() { m_imgui_layer.Initialize({&GetWindow(), &GetContext(), &GetSwapChain()}); }
+
+  void UpdateFrameStats(float delta_seconds) noexcept {
+    m_fps_elapsed_seconds += delta_seconds;
+    ++m_fps_frame_count;
+
+    if (m_fps_elapsed_seconds >= 1.0F) {
+      m_display_fps = static_cast<float>(m_fps_frame_count) / m_fps_elapsed_seconds;
+      m_frame_time_ms = 1000.0F / std::max(m_display_fps, 0.001F);
+      m_fps_elapsed_seconds = 0.0F;
+      m_fps_frame_count = 0;
+    }
+  }
 
   void DrawUi() {
     ImGui::SetNextWindowPos(ImVec2{12.0F, 12.0F}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2{160.0F, 0.0F}, ImGuiCond_FirstUseEver);
     ImGui::Begin("Point Cloud");
+    lvk::DrawImGuiText(std::format("FPS: {:.1f}", m_display_fps));
+    lvk::DrawImGuiText(std::format("Frame: {:.2f} ms", m_frame_time_ms));
     if (ImGui::Button("Reset camera")) {
       ResetCameraPose();
     }
@@ -610,25 +826,29 @@ private:
 
   std::array<float, 4> m_clear_color{0.1F, 0.2F, 0.3F, 1.0F};
   float m_perspective_fov_deg{60.0F};
+  float m_fps_elapsed_seconds{};
+  float m_display_fps{};
+  float m_frame_time_ms{};
+  uint32_t m_fps_frame_count{};
 
   std::vector<Vertex> m_vertices{};
+  PointCloudBounds m_point_cloud_bounds{};
 };
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   try {
-    std::vector<Vertex> vertices{{
-      {{-0.5F, -0.5F, -0.5F}, PackRgba8(242, 64, 46)},
-      {{0.5F, -0.5F, -0.5F}, PackRgba8(242, 184, 56)},
-      {{0.5F, 0.5F, -0.5F}, PackRgba8(71, 209, 115)},
-      {{-0.5F, 0.5F, -0.5F}, PackRgba8(38, 148, 242)},
-      {{-0.5F, -0.5F, 0.5F}, PackRgba8(158, 89, 242)},
-      {{0.5F, -0.5F, 0.5F}, PackRgba8(242, 107, 184)},
-      {{0.5F, 0.5F, 0.5F}, PackRgba8(140, 230, 235)},
-      {{-0.5F, 0.5F, 0.5F}, PackRgba8(235, 235, 242)},
-    }};
+    if (argc < 2) {
+      std::cerr << "Usage: 10_02_point_cloud <file.ply>\n";
+      return EXIT_FAILURE;
+    }
 
-    PointCloudSample sample(std::move(vertices));
+    std::vector<Vertex> vertices{PlyVertexLoader::Load(argv[1])};
+    PointCloudBounds bounds{ComputePointCloudBounds(vertices)};
+
+    std::clog << "Loaded " << vertices.size() << " vertices from " << argv[1] << '\n';
+
+    PointCloudSample sample(std::move(vertices), bounds);
     return sample.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';

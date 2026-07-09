@@ -3,12 +3,17 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <string_view>
 
 #include "lvk/glfw_window.h"
 
 namespace lvk {
 class SwapChain;
 class VulkanContext;
+
+/// @brief 绘制一段无需格式化的 ImGui 文本。
+/// @details 避免样例直接调用 `ImGui::Text` 这类 C 风格可变参数函数。
+void DrawImGuiText(std::string_view text);
 
 /// @brief 初始化 ImGui 层所需的非拥有依赖。
 /// @details 这些指针必须在 `ImGuiLayer::Shutdown` 前保持有效。

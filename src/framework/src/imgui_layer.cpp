@@ -7,6 +7,7 @@
 
 #include <array>
 #include <stdexcept>
+#include <string_view>
 
 #include "lvk/glfw_window.h"
 #include "lvk/swap_chain.h"
@@ -17,6 +18,8 @@ namespace lvk {
 namespace {
 void CheckImGuiVkResult(VkResult result) { CheckVkResult(result, "ImGui Vulkan backend failure"); }
 }  // namespace
+
+void DrawImGuiText(std::string_view text) { ImGui::TextUnformatted(text.data(), text.data() + text.size()); }
 
 ImGuiLayer::~ImGuiLayer() noexcept { Shutdown(); }
 

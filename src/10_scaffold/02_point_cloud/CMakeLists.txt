@@ -11,6 +11,11 @@ target_link_libraries(${executable_name}
         project_warnings
 )
 
+target_include_directories(${executable_name}
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/third_party
+)
+
 set(shaders
     shaders/base.vert
     shaders/base.frag

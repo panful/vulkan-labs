@@ -44,8 +44,6 @@ enum class CameraControlType { YawPitchOrbit, ArcballOrbit, Fps };
 
 [[nodiscard]] glm::dvec3 GetCameraTarget() noexcept { return {0.0, 0.0, 0.0}; }
 
-void DrawImGuiText(std::string_view text) { ImGui::TextUnformatted(text.data(), text.data() + text.size()); }
-
 [[nodiscard]] lvk::camera::CameraControllerInput MapCameraControllerInput(const lvk::InputState& input_state,
                                                                           bool wants_mouse,
                                                                           bool wants_keyboard) noexcept {
@@ -397,18 +395,18 @@ private:
     const lvk::camera::OrbitCameraControllerDesc& orbit_desc{GetActiveOrbitDesc()};
 
     ImGui::Separator();
-    DrawImGuiText(std::format("Camera mode: {}", GetCameraControlTypeName(m_camera_control_type)));
-    DrawImGuiText(std::format("Projection: {}", lvk::camera::ProjectionType::Perspective == m_projection_type
-                                                  ? "Perspective"
-                                                  : "Orthographic"));
-    DrawImGuiText(std::format("Position: {:.3f}, {:.3f}, {:.3f}", position.x, position.y, position.z));
-    DrawImGuiText(std::format("Forward: {:.3f}, {:.3f}, {:.3f}", forward.x, forward.y, forward.z));
-    DrawImGuiText(std::format("Right: {:.3f}, {:.3f}, {:.3f}", right.x, right.y, right.z));
-    DrawImGuiText(std::format("Up: {:.3f}, {:.3f}, {:.3f}", up.x, up.y, up.z));
-    DrawImGuiText(std::format("Orbit target: {:.3f}, {:.3f}, {:.3f}", orbit_desc.target.x, orbit_desc.target.y,
-                              orbit_desc.target.z));
-    DrawImGuiText(std::format("Orbit distance: {:.3f}", orbit_desc.distance));
-    DrawImGuiText(std::format("Vertical FOV: {:.1f} deg", m_perspective_fov_deg));
+    lvk::DrawImGuiText(std::format("Camera mode: {}", GetCameraControlTypeName(m_camera_control_type)));
+    lvk::DrawImGuiText(std::format("Projection: {}", lvk::camera::ProjectionType::Perspective == m_projection_type
+                                                       ? "Perspective"
+                                                       : "Orthographic"));
+    lvk::DrawImGuiText(std::format("Position: {:.3f}, {:.3f}, {:.3f}", position.x, position.y, position.z));
+    lvk::DrawImGuiText(std::format("Forward: {:.3f}, {:.3f}, {:.3f}", forward.x, forward.y, forward.z));
+    lvk::DrawImGuiText(std::format("Right: {:.3f}, {:.3f}, {:.3f}", right.x, right.y, right.z));
+    lvk::DrawImGuiText(std::format("Up: {:.3f}, {:.3f}, {:.3f}", up.x, up.y, up.z));
+    lvk::DrawImGuiText(std::format("Orbit target: {:.3f}, {:.3f}, {:.3f}", orbit_desc.target.x, orbit_desc.target.y,
+                                   orbit_desc.target.z));
+    lvk::DrawImGuiText(std::format("Orbit distance: {:.3f}", orbit_desc.distance));
+    lvk::DrawImGuiText(std::format("Vertical FOV: {:.1f} deg", m_perspective_fov_deg));
   }
 
   [[nodiscard]] const lvk::camera::OrbitCameraControllerDesc& GetActiveOrbitDesc() const {
