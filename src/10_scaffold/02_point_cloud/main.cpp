@@ -16,244 +16,30 @@
 #include <lvk/vk_utils.h>
 #include <lvk/vulkan_context.h>
 #include <lvk/vulkan_sample.h>
-#define TINYPLY_IMPLEMENTATION
-#include <tiny_ply/tinyply.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
+#include <cstdlib>
+#include <filesystem>
 #include <format>
-#include <fstream>
 #include <iostream>
-#include <iterator>
 #include <limits>
-#include <memory>
 #include <stdexcept>
-#include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "bounding_box.h"
+#include "point_cloud_vertex.h"
+#include "potree_point_cloud.h"
+#include "potree_vertex_decoder.h"
+
 namespace {
-// float3(4x3) + uint32_t(4x1) = 16 bytes
-struct Vertex {
-  glm::vec3 position{};
-  uint32_t color{};
-
-  static constexpr VkVertexInputBindingDescription GetBindingDescription() noexcept {
-    VkVertexInputBindingDescription binding_description{};
-    binding_description.binding = 0;
-    binding_description.stride = sizeof(Vertex);
-    binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    return binding_description;
-  }
-
-  // VK_FORMAT_R8G8B8A8_UNORM 颜色自动归一化，不需要手动 unpack，即 cpu 是 0~255，gpu shader 里是 0.0~1.0
-  static constexpr std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions() noexcept {
-    std::array<VkVertexInputAttributeDescription, 2> attribute_descriptions{};
-    attribute_descriptions[0].binding = 0;
-    attribute_descriptions[0].location = 0;
-    attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attribute_descriptions[0].offset = offsetof(Vertex, position);
-    attribute_descriptions[1].binding = 0;
-    attribute_descriptions[1].location = 1;
-    attribute_descriptions[1].format = VK_FORMAT_R8G8B8A8_UNORM;
-    attribute_descriptions[1].offset = offsetof(Vertex, color);
-    return attribute_descriptions;
-  }
-};
-
-static_assert(sizeof(Vertex) == 16);
-
-class BoundingBox {
-public:
-  [[nodiscard]] glm::dvec3 Min() const noexcept { return m_min; }
-  [[nodiscard]] glm::dvec3 Max() const noexcept { return m_max; }
-
-  [[nodiscard]] glm::dvec3 GetBoundsCenter() const noexcept { return (m_min + m_max) * 0.5; }
-  [[nodiscard]] double GetBoundsRadius() const noexcept { return std::max(glm::length((m_max - m_min) * 0.5), 0.001); }
-
-  [[nodiscard]] static BoundingBox ComputeBoundingBox(const std::vector<Vertex>& vertices) {
-    if (vertices.empty()) {
-      throw std::runtime_error("point cloud contains no vertices");
-    }
-
-    BoundingBox bounds{};
-    bounds.m_min = glm::dvec3{vertices.front().position};
-    bounds.m_max = bounds.m_min;
-
-    for (const Vertex& vertex : vertices) {
-      const glm::dvec3 position{vertex.position};
-      bounds.m_min = glm::min(bounds.m_min, position);
-      bounds.m_max = glm::max(bounds.m_max, position);
-    }
-
-    return bounds;
-  }
-
-private:
-  glm::dvec3 m_min{-1.0};
-  glm::dvec3 m_max{1.0};
-};
-
-class PlyVertexLoader final {
-public:
-  [[nodiscard]] static std::vector<Vertex> Load(std::string_view file_path) {
-    std::ifstream file{std::string{file_path}, std::ios::binary};
-    if (!file) {
-      throw std::runtime_error("failed to open PLY file");
-    }
-
-    tinyply::PlyFile ply_file{};
-    ply_file.parse_header(file);
-    const std::vector<tinyply::PlyElement> elements{ply_file.get_elements()};
-
-    std::shared_ptr<tinyply::PlyData> positions{
-      ply_file.request_properties_from_element("vertex", std::vector<std::string>{"x", "y", "z"})};
-
-    std::shared_ptr<tinyply::PlyData> colors{};
-    if (HasVertexProperties(elements, std::vector<std::string>{"red", "green", "blue"})) {
-      colors = ply_file.request_properties_from_element("vertex", std::vector<std::string>{"red", "green", "blue"});
-    } else if (HasVertexProperties(elements, std::vector<std::string>{"r", "g", "b"})) {
-      colors = ply_file.request_properties_from_element("vertex", std::vector<std::string>{"r", "g", "b"});
-    }
-
-    ply_file.read(file);
-
-    std::vector<Vertex> vertices{};
-    FillPositions(*positions, vertices);
-    if (colors) {
-      FillColors(*colors, vertices);
-    } else {
-      FillDefaultColors(vertices);
-    }
-
-    if (vertices.empty()) {
-      throw std::runtime_error("PLY file contains no vertices");
-    }
-
-    return vertices;
-  }
-
-private:
-  [[nodiscard]] static constexpr uint32_t PackRgba8(uint8_t red, uint8_t green, uint8_t blue,
-                                                    uint8_t alpha = 255) noexcept {
-    return static_cast<uint32_t>(red) | (static_cast<uint32_t>(green) << 8U) | (static_cast<uint32_t>(blue) << 16U) |
-           (static_cast<uint32_t>(alpha) << 24U);
-  }
-
-  [[nodiscard]] static bool HasVertexProperties(const std::vector<tinyply::PlyElement>& elements,
-                                                const std::vector<std::string>& property_names) {
-    const auto vertex_element{
-      std::ranges::find_if(elements, [](const tinyply::PlyElement& element) { return "vertex" == element.name; })};
-    if (vertex_element == elements.end()) {
-      return false;
-    }
-
-    return std::ranges::all_of(property_names, [&vertex_element](const std::string& property_name) {
-      return vertex_element->properties.end() !=
-             std::ranges::find_if(vertex_element->properties, [&property_name](const tinyply::PlyProperty& property) {
-               return property_name == property.name;
-             });
-    });
-  }
-
-  [[nodiscard]] static uint8_t ConvertColorComponent(float value) noexcept {
-    const float scaled_value{value <= 1.0F ? value * 255.0F : value};
-    return static_cast<uint8_t>(std::clamp(scaled_value, 0.0F, 255.0F));
-  }
-
-  [[nodiscard]] static uint8_t ConvertColorComponent(double value) noexcept {
-    const double scaled_value{value <= 1.0 ? value * 255.0 : value};
-    return static_cast<uint8_t>(std::clamp(scaled_value, 0.0, 255.0));
-  }
-
-  [[nodiscard]] static uint8_t ConvertColorComponent(uint16_t value) noexcept {
-    if (value <= uint16_t{255}) {
-      return static_cast<uint8_t>(value);
-    }
-    return static_cast<uint8_t>(static_cast<uint32_t>(value) * 255U / 65535U);
-  }
-
-  template <typename T>
-  [[nodiscard]] static uint8_t ConvertColorComponent(T value) noexcept {
-    return static_cast<uint8_t>(
-      std::clamp(static_cast<uint32_t>(value), uint32_t{}, static_cast<uint32_t>(uint8_t{255})));
-  }
-
-  template <typename PositionType>
-  static void FillPositions(const tinyply::PlyData& positions, std::vector<Vertex>& vertices) {
-    if (0U == positions.count || positions.buffer.size_bytes() != positions.count * sizeof(PositionType) * 3U) {
-      throw std::runtime_error("PLY vertex positions must contain x, y and z per vertex");
-    }
-
-    const size_t vertex_count{positions.count};
-    vertices.resize(vertex_count);
-    const PositionType* position_values{reinterpret_cast<const PositionType*>(positions.buffer.get_const())};
-    for (size_t i{}; i < vertex_count; ++i) {
-      vertices.at(i).position = {
-        static_cast<float>(position_values[(i * 3U) + 0U]),
-        static_cast<float>(position_values[(i * 3U) + 1U]),
-        static_cast<float>(position_values[(i * 3U) + 2U]),
-      };
-    }
-  }
-
-  template <typename ColorType>
-  static void FillColors(const tinyply::PlyData& colors, std::vector<Vertex>& vertices) {
-    if (colors.count != vertices.size() || colors.buffer.size_bytes() != vertices.size() * sizeof(ColorType) * 3U) {
-      throw std::runtime_error("PLY vertex colors must contain red, green and blue per vertex");
-    }
-
-    const ColorType* color_values{reinterpret_cast<const ColorType*>(colors.buffer.get_const())};
-    for (size_t i{}; i < vertices.size(); ++i) {
-      vertices.at(i).color = PackRgba8(ConvertColorComponent(color_values[(i * 3U) + 0U]),
-                                       ConvertColorComponent(color_values[(i * 3U) + 1U]),
-                                       ConvertColorComponent(color_values[(i * 3U) + 2U]));
-    }
-  }
-
-  static void FillDefaultColors(std::vector<Vertex>& vertices) {
-    for (Vertex& vertex : vertices) {
-      vertex.color = PackRgba8(255, 255, 255);
-    }
-  }
-
-  static void FillPositions(const tinyply::PlyData& positions, std::vector<Vertex>& vertices) {
-    switch (positions.t) {
-      case tinyply::Type::FLOAT32:
-        FillPositions<float>(positions, vertices);
-        return;
-      case tinyply::Type::FLOAT64:
-        FillPositions<double>(positions, vertices);
-        return;
-      default:
-        throw std::runtime_error("PLY vertex positions must use float or double properties");
-    }
-  }
-
-  static void FillColors(const tinyply::PlyData& colors, std::vector<Vertex>& vertices) {
-    switch (colors.t) {
-      case tinyply::Type::UINT8:
-        FillColors<uint8_t>(colors, vertices);
-        return;
-      case tinyply::Type::UINT16:
-        FillColors<uint16_t>(colors, vertices);
-        return;
-      case tinyply::Type::FLOAT32:
-        FillColors<float>(colors, vertices);
-        return;
-      case tinyply::Type::FLOAT64:
-        FillColors<double>(colors, vertices);
-        return;
-      default:
-        throw std::runtime_error("PLY vertex colors must use uint8, uint16, float or double properties");
-    }
-  }
-};
+using BoundingBox = lvk::point_cloud::BoundingBox;
+using Vertex = lvk::point_cloud::PointCloudVertex;
+using PotreePointCloud = lvk::point_cloud::PotreePointCloud;
 
 class PointCloudSample final : public lvk::VulkanSample {
   struct UniformBufferObject {
@@ -276,19 +62,8 @@ class PointCloudSample final : public lvk::VulkanSample {
 
 public:
   PointCloudSample(std::vector<Vertex> vertices) {
-    m_point_cloud_bounds = BoundingBox::ComputeBoundingBox(vertices);
-
-    const auto middle_index = vertices.size() / 2;
-    using DifferenceType = std::vector<Vertex>::difference_type;
-    const auto middle = std::next(vertices.begin(), static_cast<DifferenceType>(middle_index));
-
-    m_nodes.reserve(2);
-    if (middle != vertices.begin()) {
-      m_nodes.emplace_back(vertices.begin(), middle);
-    }
-    if (middle != vertices.end()) {
-      m_nodes.emplace_back(middle, vertices.end());
-    }
+    m_point_cloud_bounds = lvk::point_cloud::ComputeBoundingBox(vertices);
+    m_nodes.push_back(std::move(vertices));
   }
 
 protected:
@@ -600,7 +375,7 @@ private:
 
         m_drawables.emplace_back();
         PointCloudDrawable& drawable{m_drawables.back()};
-        drawable.bounding_box = BoundingBox::ComputeBoundingBox(node);
+        drawable.bounding_box = lvk::point_cloud::ComputeBoundingBox(node);
         drawable.vertex_count = static_cast<uint32_t>(node.size());
 
         const VkDeviceSize buffer_size{sizeof(Vertex) * node.size()};
@@ -883,20 +658,25 @@ private:
 };
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
+  if (argc != 2) {
+    std::cerr << "Usage: " << argv[0] << " <potree_point_cloud_directory>\n";
+    return EXIT_FAILURE;
+  }
+
+  const std::filesystem::path point_cloud_directory{argv[1]};
+
   try {
-    if (argc < 2) {
-      std::cerr << "Usage: 10_02_point_cloud <file.ply>\n";
-      return EXIT_FAILURE;
-    }
+    PotreePointCloud point_cloud{point_cloud_directory};
+    const lvk::point_cloud::PotreeNodeIndex root_node_index{point_cloud.GetRootNodeIndex()};
 
-    std::vector<Vertex> vertices{PlyVertexLoader::Load(argv[1])};
-    std::clog << "Loaded " << vertices.size() << " vertices from " << argv[1] << '\n';
-    PointCloudSample sample(std::move(vertices));
+    std::vector<Vertex> vertices{lvk::point_cloud::LoadAndDecodePotreeNodeVertices(point_cloud, root_node_index)};
+    std::clog << "Loaded Potree root node with " << vertices.size() << " vertices\n";
 
+    PointCloudSample sample{std::move(vertices)};
     return sample.Run();
-  } catch (const std::exception& e) {
-    std::cerr << e.what() << '\n';
+  } catch (const std::exception& exception) {
+    std::cerr << exception.what() << '\n';
     return EXIT_FAILURE;
   } catch (...) {
     std::cerr << "Unknown error occurred\n";

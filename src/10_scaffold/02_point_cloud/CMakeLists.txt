@@ -1,7 +1,17 @@
 set(executable_name "10_02_point_cloud")
 set(shader_target_name "10_02_point_cloud_shaders")
 
-add_executable(${executable_name} main.cpp)
+add_executable(${executable_name}
+    bounding_box.cpp
+    bounding_box.h
+    main.cpp
+    point_cloud_vertex.cpp
+    point_cloud_vertex.h
+    potree_point_cloud.cpp
+    potree_point_cloud.h
+    potree_vertex_decoder.cpp
+    potree_vertex_decoder.h
+)
 
 target_link_libraries(${executable_name}
     PRIVATE
