@@ -28,6 +28,8 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -266,11 +268,28 @@ class PointCloudSample final : public lvk::VulkanSample {
     void* mapped_memory{nullptr};
   };
 
+  struct PointCloudDrawable {
+    BufferResource vertex_buffer{};
+    BoundingBox bounding_box{};
+    uint32_t vertex_count{};
+  };
+
 public:
-  PointCloudSample(std::vector<Vertex> vertices, BoundingBox bounds)
-      : m_vertices(std::move(vertices)),
-        m_vertex_count(static_cast<uint32_t>(m_vertices.size())),
-        m_point_cloud_bounds(bounds) {}
+  PointCloudSample(std::vector<Vertex> vertices) {
+    m_point_cloud_bounds = BoundingBox::ComputeBoundingBox(vertices);
+
+    const auto middle_index = vertices.size() / 2;
+    using DifferenceType = std::vector<Vertex>::difference_type;
+    const auto middle = std::next(vertices.begin(), static_cast<DifferenceType>(middle_index));
+
+    m_nodes.reserve(2);
+    if (middle != vertices.begin()) {
+      m_nodes.emplace_back(vertices.begin(), middle);
+    }
+    if (middle != vertices.end()) {
+      m_nodes.emplace_back(middle, vertices.end());
+    }
+  }
 
 protected:
   void Configure(lvk::ApplicationDesc& desc) override {
@@ -281,7 +300,7 @@ protected:
 
   void OnCreate() override {
     InitializeCamera();
-    CreateVertexBuffer();
+    CreateVertexBuffers();
     CreateDescriptorSetLayout();
     CreateUniformBuffers();
     CreateDescriptorPool();
@@ -294,7 +313,7 @@ protected:
     m_imgui_layer.Shutdown();
     DestroyPipeline();
     DestroyDescriptorResources();
-    DestroyBuffer(m_vertex_buffer);
+    DestroyVertexBuffers();
   }
 
   void OnUpdate(float delta_seconds, const lvk::InputState& input_state) override {
@@ -324,17 +343,20 @@ protected:
     scissor.offset = {0, 0};
     scissor.extent = extent;
 
-    const std::array<VkBuffer, 1> vertex_buffers{m_vertex_buffer.buffer};
     const std::array<VkDeviceSize, 1> offsets{0};
 
     vkCmdBindPipeline(frame_context.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphics_pipeline);
     vkCmdSetViewport(frame_context.command_buffer, 0, 1, &viewport);
     vkCmdSetScissor(frame_context.command_buffer, 0, 1, &scissor);
-    vkCmdBindVertexBuffers(frame_context.command_buffer, 0, static_cast<uint32_t>(vertex_buffers.size()),
-                           vertex_buffers.data(), offsets.data());
     vkCmdBindDescriptorSets(frame_context.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline_layout, 0, 1,
                             &m_descriptor_sets.at(frame_context.frame_index), 0, nullptr);
-    vkCmdDraw(frame_context.command_buffer, m_vertex_count, 1, 0, 0);
+
+    for (const auto& drawable : m_drawables) {
+      const std::array<VkBuffer, 1> vertex_buffers{drawable.vertex_buffer.buffer};
+      vkCmdBindVertexBuffers(frame_context.command_buffer, 0, static_cast<uint32_t>(vertex_buffers.size()),
+                             vertex_buffers.data(), offsets.data());
+      vkCmdDraw(frame_context.command_buffer, drawable.vertex_count, 1, 0, 0);
+    }
 
     m_imgui_layer.BeginFrame();
     DrawUi();
@@ -567,28 +589,51 @@ private:
       "failed to create graphics pipeline");
   }
 
-  void CreateVertexBuffer() {
-    const VkDeviceSize buffer_size{sizeof(m_vertices.front()) * m_vertices.size()};
+  void CreateVertexBuffers() {
+    m_drawables.reserve(m_nodes.size());
 
-    BufferResource staging_buffer{};
     try {
-      CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer);
-      lvk::CheckVkResult(
-        vkMapMemory(GetContext().GetDevice(), staging_buffer.memory, 0, buffer_size, 0, &staging_buffer.mapped_memory),
-        "failed to map staging buffer memory");
-      std::memcpy(staging_buffer.mapped_memory, m_vertices.data(), static_cast<size_t>(buffer_size));
+      for (const auto& node : m_nodes) {
+        if (node.size() > std::numeric_limits<uint32_t>::max()) {
+          throw std::runtime_error("point cloud node contains too many vertices");
+        }
 
-      CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_vertex_buffer);
-      CopyBuffer(staging_buffer.buffer, m_vertex_buffer.buffer, buffer_size);
+        m_drawables.emplace_back();
+        PointCloudDrawable& drawable{m_drawables.back()};
+        drawable.bounding_box = BoundingBox::ComputeBoundingBox(node);
+        drawable.vertex_count = static_cast<uint32_t>(node.size());
+
+        const VkDeviceSize buffer_size{sizeof(Vertex) * node.size()};
+        BufferResource staging_buffer{};
+        try {
+          CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer);
+          lvk::CheckVkResult(vkMapMemory(GetContext().GetDevice(), staging_buffer.memory, 0, buffer_size, 0,
+                                         &staging_buffer.mapped_memory),
+                             "failed to map staging buffer memory");
+          std::memcpy(staging_buffer.mapped_memory, node.data(), static_cast<size_t>(buffer_size));
+
+          CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, drawable.vertex_buffer);
+          CopyBuffer(staging_buffer.buffer, drawable.vertex_buffer.buffer, buffer_size);
+        } catch (...) {
+          DestroyBuffer(staging_buffer);
+          throw;
+        }
+
+        DestroyBuffer(staging_buffer);
+      }
     } catch (...) {
-      DestroyBuffer(staging_buffer);
-      DestroyBuffer(m_vertex_buffer);
+      DestroyVertexBuffers();
       throw;
     }
+  }
 
-    DestroyBuffer(staging_buffer);
+  void DestroyVertexBuffers() noexcept {
+    for (PointCloudDrawable& drawable : m_drawables) {
+      DestroyBuffer(drawable.vertex_buffer);
+    }
+    m_drawables.clear();
   }
 
   void CreateUniformBuffers() {
@@ -825,9 +870,8 @@ private:
   VkPipelineLayout m_pipeline_layout{VK_NULL_HANDLE};
   VkPipeline m_graphics_pipeline{VK_NULL_HANDLE};
 
-  BufferResource m_vertex_buffer{};
-  std::vector<Vertex> m_vertices{};
-  uint32_t m_vertex_count{};
+  std::vector<PointCloudDrawable> m_drawables{};
+  std::vector<std::vector<Vertex>> m_nodes{};
   BoundingBox m_point_cloud_bounds{};
 
   std::array<float, 4> m_clear_color{0.1F, 0.2F, 0.3F, 1.0F};
@@ -847,11 +891,9 @@ int main(int argc, char** argv) {
     }
 
     std::vector<Vertex> vertices{PlyVertexLoader::Load(argv[1])};
-    BoundingBox bounds{BoundingBox::ComputeBoundingBox(vertices)};
-
     std::clog << "Loaded " << vertices.size() << " vertices from " << argv[1] << '\n';
+    PointCloudSample sample(std::move(vertices));
 
-    PointCloudSample sample(std::move(vertices), bounds);
     return sample.Run();
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
