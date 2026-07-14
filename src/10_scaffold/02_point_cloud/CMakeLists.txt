@@ -7,6 +7,8 @@ add_executable(${executable_name}
     main.cpp
     point_cloud_vertex.cpp
     point_cloud_vertex.h
+    potree_lod_selector.cpp
+    potree_lod_selector.h
     potree_point_cloud.cpp
     potree_point_cloud.h
     potree_vertex_decoder.cpp

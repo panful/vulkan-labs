@@ -3,9 +3,11 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace lvk::point_cloud {
 namespace {
@@ -99,8 +101,7 @@ void ValidateColorAttribute(const PotreeAttributeInfo& attribute) {
 }
 }  // namespace
 
-std::vector<PointCloudVertex> LoadAndDecodePotreeNodeVertices(PotreePointCloud& point_cloud,
-                                                              PotreeNodeIndex node_index) {
+std::vector<PointCloudVertex> LoadPotreeNodeVertices(PotreePointCloud& point_cloud, PotreeNodeIndex node_index) {
   point_cloud.LoadNodeData(node_index);
   const PotreeMetadataInfo& metadata{point_cloud.GetMetadata()};
   const PotreeNodeInfo& node{point_cloud.GetNode(node_index)};
@@ -139,12 +140,9 @@ std::vector<PointCloudVertex> LoadAndDecodePotreeNodeVertices(PotreePointCloud& 
     const std::int32_t encoded_z{ReadInt32LittleEndian(point_bytes, position_offset + (sizeof(std::int32_t) * 2U))};
 
     PointCloudVertex vertex{};
-    vertex.position.x = static_cast<float>(encoded_x * metadata.scale.x + metadata.offset.x);
-    vertex.position.y = static_cast<float>(encoded_y * metadata.scale.y + metadata.offset.y);
-    vertex.position.z = static_cast<float>(encoded_z * metadata.scale.z + metadata.offset.z);
+    vertex.position = {encoded_x, encoded_y, encoded_z};
     vertex.color = nullptr != color_attribute ? DecodePointColor(point_bytes, point_offset, *color_attribute)
                                               : k_fallback_point_color;
-
     vertices.push_back(vertex);
   }
 

@@ -6,13 +6,19 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 projection;
 } ubo;
 
-layout(location = 0) in vec3 inPosition;
+layout(push_constant) uniform PointDecodePushConstant {
+    vec4 offset;
+    vec4 scale;
+} pointDecode;
+
+layout(location = 0) in ivec3 inPosition;
 layout(location = 1) in vec4 inColor;
 
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    gl_PointSize = 2.0;
-    gl_Position = ubo.projection * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    vec3 position = vec3(inPosition) * pointDecode.scale.xyz + pointDecode.offset.xyz;
+    gl_PointSize = 1.0;
+    gl_Position = ubo.projection * ubo.view * ubo.model * vec4(position, 1.0);
     fragColor = inColor;
 }

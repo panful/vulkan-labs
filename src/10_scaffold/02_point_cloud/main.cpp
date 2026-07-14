@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -33,12 +34,14 @@
 
 #include "bounding_box.h"
 #include "point_cloud_vertex.h"
+#include "potree_lod_selector.h"
 #include "potree_point_cloud.h"
 #include "potree_vertex_decoder.h"
 
 namespace {
 using BoundingBox = lvk::point_cloud::BoundingBox;
 using Vertex = lvk::point_cloud::PointCloudVertex;
+using PotreeNodeIndex = lvk::point_cloud::PotreeNodeIndex;
 using PotreePointCloud = lvk::point_cloud::PotreePointCloud;
 
 class PointCloudSample final : public lvk::VulkanSample {
@@ -54,16 +57,40 @@ class PointCloudSample final : public lvk::VulkanSample {
     void* mapped_memory{nullptr};
   };
 
+  struct PointDecodePushConstant {
+    glm::vec4 offset{};
+    glm::vec4 scale{1.0F};
+  };
+  static_assert(sizeof(PointDecodePushConstant) == sizeof(float) * 8U);
+
+  struct CameraClipPlanes {
+    double near_plane{};
+    double far_plane{};
+  };
+
   struct PointCloudDrawable {
     BufferResource vertex_buffer{};
-    BoundingBox bounding_box{};
     uint32_t vertex_count{};
+    bool is_resident{false};
   };
 
 public:
-  PointCloudSample(std::vector<Vertex> vertices) {
-    m_point_cloud_bounds = lvk::point_cloud::ComputeBoundingBox(vertices);
-    m_nodes.push_back(std::move(vertices));
+  explicit PointCloudSample(PotreePointCloud point_cloud)
+      : m_point_cloud{std::move(point_cloud)}, m_point_cloud_bounds{m_point_cloud.GetMetadata().bounds} {
+    const lvk::point_cloud::PotreeMetadataInfo& metadata{m_point_cloud.GetMetadata()};
+    m_point_decode_push_constant.offset = {
+      static_cast<float>(metadata.offset.x),
+      static_cast<float>(metadata.offset.y),
+      static_cast<float>(metadata.offset.z),
+      0.0F,
+    };
+    m_point_decode_push_constant.scale = {
+      static_cast<float>(metadata.scale.x),
+      static_cast<float>(metadata.scale.y),
+      static_cast<float>(metadata.scale.z),
+      1.0F,
+    };
+    m_drawables.resize(m_point_cloud.GetNodes().size());
   }
 
 protected:
@@ -75,7 +102,11 @@ protected:
 
   void OnCreate() override {
     InitializeCamera();
-    CreateVertexBuffers();
+    const PotreeNodeIndex root_node_index{m_point_cloud.GetRootNodeIndex()};
+    CreateNodeDrawable(root_node_index);
+    m_rendered_node_indices.push_back(root_node_index);
+    UpdateRenderedStats();
+    UpdateLodSelection();
     CreateDescriptorSetLayout();
     CreateUniformBuffers();
     CreateDescriptorPool();
@@ -98,6 +129,9 @@ protected:
     UpdateFrameStats(delta_seconds);
     UpdateOrbitViewportSize();
     m_yaw_pitch_orbit_camera_controller.Update(delta_seconds, camera_input);
+    ApplyCameraProjection();
+    UpdateLodSelection();
+    LoadSelectedNodeDrawables();
   }
 
   void OnRender(lvk::FrameContext& frame_context) override {
@@ -126,7 +160,14 @@ protected:
     vkCmdBindDescriptorSets(frame_context.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline_layout, 0, 1,
                             &m_descriptor_sets.at(frame_context.frame_index), 0, nullptr);
 
-    for (const auto& drawable : m_drawables) {
+    vkCmdPushConstants(frame_context.command_buffer, m_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(PointDecodePushConstant), &m_point_decode_push_constant);
+
+    for (const PotreeNodeIndex node_index : m_rendered_node_indices) {
+      const PointCloudDrawable& drawable{m_drawables.at(node_index)};
+      if (!drawable.is_resident || drawable.vertex_count == 0) {
+        continue;
+      }
       const std::array<VkBuffer, 1> vertex_buffers{drawable.vertex_buffer.buffer};
       vkCmdBindVertexBuffers(frame_context.command_buffer, 0, static_cast<uint32_t>(vertex_buffers.size()),
                              vertex_buffers.data(), offsets.data());
@@ -182,12 +223,42 @@ private:
 
   void ApplyCameraProjection() {
     const VkExtent2D extent{GetSwapChain().GetExtent()};
-    const double aspect_ratio{static_cast<double>(extent.width) / static_cast<double>(extent.height)};
+    const double width{std::max(static_cast<double>(extent.width), 1.0)};
+    const double height{std::max(static_cast<double>(extent.height), 1.0)};
+    const CameraClipPlanes clip_planes{ComputeCameraClipPlanes()};
+    m_camera.SetPerspective(glm::radians(static_cast<double>(m_perspective_fov_deg)), width / height,
+                            clip_planes.near_plane, clip_planes.far_plane);
+  }
+
+  [[nodiscard]] CameraClipPlanes ComputeCameraClipPlanes() const noexcept {
+    const glm::dvec3 bounds_min{m_point_cloud_bounds.GetMin()};
+    const glm::dvec3 bounds_max{m_point_cloud_bounds.GetMax()};
+    const glm::dvec3 camera_position{m_camera.GetPosition()};
+    const glm::dvec3 camera_forward{m_camera.GetForward()};
+
+    double nearest_depth{std::numeric_limits<double>::max()};
+    double farthest_depth{std::numeric_limits<double>::lowest()};
+    for (std::size_t x{}; x < 2; ++x) {
+      for (std::size_t y{}; y < 2; ++y) {
+        for (std::size_t z{}; z < 2; ++z) {
+          const glm::dvec3 corner{
+            x == 0 ? bounds_min.x : bounds_max.x,
+            y == 0 ? bounds_min.y : bounds_max.y,
+            z == 0 ? bounds_min.z : bounds_max.z,
+          };
+          const double depth{glm::dot(corner - camera_position, camera_forward)};
+          nearest_depth = std::min(nearest_depth, depth);
+          farthest_depth = std::max(farthest_depth, depth);
+        }
+      }
+    }
+
     const double bounds_radius{m_point_cloud_bounds.GetBoundsRadius()};
-    const double near_plane{std::max(bounds_radius * 0.0001, 0.001)};
-    const double far_plane{std::max(bounds_radius * 20.0, 100.0)};
-    m_camera.SetPerspective(glm::radians(static_cast<double>(m_perspective_fov_deg)), aspect_ratio, near_plane,
-                            far_plane);
+    const double minimum_near_plane{std::max(bounds_radius * 0.0001, 0.001)};
+    const double safety_margin{std::max(bounds_radius * 0.05, minimum_near_plane)};
+    const double near_plane{std::max(nearest_depth - safety_margin, minimum_near_plane)};
+    const double far_plane{std::max(farthest_depth + safety_margin, near_plane + minimum_near_plane)};
+    return {near_plane, far_plane};
   }
 
   [[nodiscard]] double GetCameraFitDistance() const noexcept {
@@ -216,9 +287,9 @@ private:
     const glm::dvec3 target{m_point_cloud_bounds.GetBoundsCenter()};
     const double distance{GetCameraFitDistance()};
     const glm::dvec3 view_offset{glm::normalize(glm::dvec3{0.0, 0.35, 1.0}) * distance};
-    ApplyCameraProjection();
     m_camera.LookAt(target + view_offset, target);
     m_yaw_pitch_orbit_camera_controller.Focus(target, distance);
+    ApplyCameraProjection();
   }
 
   void InitializeImGui() { m_imgui_layer.Initialize({&GetWindow(), &GetContext(), &GetSwapChain()}); }
@@ -237,10 +308,16 @@ private:
 
   void DrawUi() {
     ImGui::SetNextWindowPos(ImVec2{12.0F, 12.0F}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2{160.0F, 0.0F}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2{240.0F, 0.0F}, ImGuiCond_FirstUseEver);
     ImGui::Begin("Point Cloud");
     lvk::DrawImGuiText(std::format("FPS: {:.1f}", m_display_fps));
     lvk::DrawImGuiText(std::format("Frame: {:.2f} ms", m_frame_time_ms));
+    lvk::DrawImGuiText(
+      std::format("Selected: {} nodes / {} points", m_selected_node_indices.size(), m_selected_point_count));
+    lvk::DrawImGuiText(std::format("Rendered: {} nodes / {} points", m_rendered_node_count, m_rendered_point_count));
+    lvk::DrawImGuiText(std::format("Resident: {} nodes / {} points", m_resident_node_count, m_resident_point_count));
+    ImGui::SliderFloat("LOD spacing", &m_target_pixel_spacing, 0.1F, 4.0F, "%.1f px");
+    ImGui::SliderInt("Point budget", &m_point_budget, 100'000, 10'000'000, "%d");
     if (ImGui::Button("Reset camera")) {
       ResetCameraPose();
     }
@@ -269,10 +346,17 @@ private:
   }
 
   void CreatePipelineLayout(VkDevice device) {
+    VkPushConstantRange push_constant_range{};
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(PointDecodePushConstant);
+
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.setLayoutCount = 1;
     pipeline_layout_info.pSetLayouts = &m_descriptor_set_layout;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
     lvk::CheckVkResult(vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &m_pipeline_layout),
                        "failed to create pipeline layout");
   }
@@ -364,43 +448,118 @@ private:
       "failed to create graphics pipeline");
   }
 
-  void CreateVertexBuffers() {
-    m_drawables.reserve(m_nodes.size());
+  void UpdateLodSelection() {
+    const VkExtent2D extent{GetSwapChain().GetExtent()};
+    const double viewport_height_pixels{std::max(static_cast<double>(extent.height), 1.0)};
+    const glm::dmat4 view{m_camera.GetViewMatrix()};
+    const glm::dmat4 projection{m_camera.GetProjectionMatrix(lvk::camera::projection_conventions::k_vulkan)};
 
-    try {
-      for (const auto& node : m_nodes) {
-        if (node.size() > std::numeric_limits<uint32_t>::max()) {
-          throw std::runtime_error("point cloud node contains too many vertices");
-        }
+    lvk::point_cloud::PotreeLodSelectionParams params{};
+    params.view_projection = projection * view;
+    params.camera_position = m_camera.GetPosition();
+    params.focal_length_pixels = std::abs(projection[1][1]) * viewport_height_pixels * 0.5;
+    params.target_pixel_spacing = static_cast<double>(m_target_pixel_spacing);
+    params.point_budget = static_cast<std::uint64_t>(m_point_budget);
 
-        m_drawables.emplace_back();
-        PointCloudDrawable& drawable{m_drawables.back()};
-        drawable.bounding_box = lvk::point_cloud::ComputeBoundingBox(node);
-        drawable.vertex_count = static_cast<uint32_t>(node.size());
+    lvk::point_cloud::PotreeLodSelectionInfo selection{lvk::point_cloud::SelectPotreeLod(m_point_cloud, params)};
+    m_selected_node_indices = std::move(selection.node_indices);
+    m_selected_point_count = selection.point_count;
+    CommitLodSelectionIfResident();
+  }
 
-        const VkDeviceSize buffer_size{sizeof(Vertex) * node.size()};
-        BufferResource staging_buffer{};
-        try {
-          CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer);
-          lvk::CheckVkResult(vkMapMemory(GetContext().GetDevice(), staging_buffer.memory, 0, buffer_size, 0,
-                                         &staging_buffer.mapped_memory),
-                             "failed to map staging buffer memory");
-          std::memcpy(staging_buffer.mapped_memory, node.data(), static_cast<size_t>(buffer_size));
+  void LoadSelectedNodeDrawables() {
+    std::size_t loaded_node_count{};
+    std::uint64_t uploaded_byte_count{};
 
-          CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, drawable.vertex_buffer);
-          CopyBuffer(staging_buffer.buffer, drawable.vertex_buffer.buffer, buffer_size);
-        } catch (...) {
-          DestroyBuffer(staging_buffer);
-          throw;
-        }
-
-        DestroyBuffer(staging_buffer);
+    for (const PotreeNodeIndex node_index : m_selected_node_indices) {
+      if (m_drawables.at(node_index).is_resident) {
+        continue;
       }
+
+      const lvk::point_cloud::PotreeNodeInfo& node{m_point_cloud.GetNode(node_index)};
+      const std::uint64_t node_byte_count{static_cast<std::uint64_t>(node.point_count) * sizeof(Vertex)};
+      if (loaded_node_count >= k_max_node_loads_per_frame) {
+        break;
+      }
+      const bool has_upload_budget = uploaded_byte_count < k_max_upload_bytes_per_frame &&
+                                     node_byte_count <= k_max_upload_bytes_per_frame - uploaded_byte_count;
+      if (loaded_node_count > 0 && !has_upload_budget) {
+        break;
+      }
+
+      CreateNodeDrawable(node_index);
+      ++loaded_node_count;
+      uploaded_byte_count += node_byte_count;
+    }
+
+    CommitLodSelectionIfResident();
+  }
+
+  void CreateNodeDrawable(PotreeNodeIndex node_index) {
+    PointCloudDrawable& drawable{m_drawables.at(node_index)};
+    if (drawable.is_resident) {
+      return;
+    }
+
+    BufferResource staging_buffer{};
+    try {
+      const std::vector<Vertex> vertices{lvk::point_cloud::LoadPotreeNodeVertices(m_point_cloud, node_index)};
+      if (vertices.size() > std::numeric_limits<uint32_t>::max()) {
+        throw std::runtime_error{"point cloud node contains too many vertices"};
+      }
+
+      drawable.vertex_count = static_cast<uint32_t>(vertices.size());
+      if (!vertices.empty()) {
+        const VkDeviceSize buffer_size{sizeof(Vertex) * vertices.size()};
+        CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer);
+        lvk::CheckVkResult(vkMapMemory(GetContext().GetDevice(), staging_buffer.memory, 0, buffer_size, 0,
+                                       &staging_buffer.mapped_memory),
+                           "failed to map staging buffer memory");
+        std::memcpy(staging_buffer.mapped_memory, vertices.data(), static_cast<std::size_t>(buffer_size));
+
+        CreateBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, drawable.vertex_buffer);
+        CopyBuffer(staging_buffer.buffer, drawable.vertex_buffer.buffer, buffer_size);
+      }
+
+      drawable.is_resident = true;
     } catch (...) {
-      DestroyVertexBuffers();
+      DestroyBuffer(staging_buffer);
+      DestroyBuffer(drawable.vertex_buffer);
+      drawable.vertex_count = 0;
+      m_point_cloud.UnloadNodeData(node_index);
       throw;
+    }
+
+    DestroyBuffer(staging_buffer);
+    m_point_cloud.UnloadNodeData(node_index);
+    ++m_resident_node_count;
+    m_resident_point_count += drawable.vertex_count;
+  }
+
+  void CommitLodSelectionIfResident() {
+    const bool is_selection_resident =
+      std::all_of(m_selected_node_indices.begin(), m_selected_node_indices.end(),
+                  [this](PotreeNodeIndex node_index) { return m_drawables[node_index].is_resident; });
+    if (!is_selection_resident) {
+      return;
+    }
+
+    m_rendered_node_indices = m_selected_node_indices;
+    UpdateRenderedStats();
+  }
+
+  void UpdateRenderedStats() noexcept {
+    m_rendered_node_count = 0;
+    m_rendered_point_count = 0;
+    for (const PotreeNodeIndex node_index : m_rendered_node_indices) {
+      const PointCloudDrawable& drawable{m_drawables[node_index]};
+      if (!drawable.is_resident) {
+        continue;
+      }
+      ++m_rendered_node_count;
+      m_rendered_point_count += drawable.vertex_count;
     }
   }
 
@@ -409,6 +568,10 @@ private:
       DestroyBuffer(drawable.vertex_buffer);
     }
     m_drawables.clear();
+    m_selected_node_indices.clear();
+    m_rendered_node_indices.clear();
+    m_resident_node_count = 0;
+    m_resident_point_count = 0;
   }
 
   void CreateUniformBuffers() {
@@ -631,7 +794,9 @@ private:
   }
 
 private:
-  static constexpr uint32_t k_max_frames_in_flight{2};
+  static constexpr std::uint32_t k_max_frames_in_flight{2};
+  static constexpr std::size_t k_max_node_loads_per_frame{2};
+  static constexpr std::uint64_t k_max_upload_bytes_per_frame{32ULL * 1024ULL * 1024ULL};
 
 private:
   lvk::camera::Camera m_camera{};
@@ -645,16 +810,26 @@ private:
   VkPipelineLayout m_pipeline_layout{VK_NULL_HANDLE};
   VkPipeline m_graphics_pipeline{VK_NULL_HANDLE};
 
+  PotreePointCloud m_point_cloud;
   std::vector<PointCloudDrawable> m_drawables{};
-  std::vector<std::vector<Vertex>> m_nodes{};
+  std::vector<PotreeNodeIndex> m_selected_node_indices{};
+  std::vector<PotreeNodeIndex> m_rendered_node_indices{};
+  PointDecodePushConstant m_point_decode_push_constant{};
   BoundingBox m_point_cloud_bounds{};
 
   std::array<float, 4> m_clear_color{0.1F, 0.2F, 0.3F, 1.0F};
   float m_perspective_fov_deg{60.0F};
+  float m_target_pixel_spacing{1.0F};
   float m_fps_elapsed_seconds{};
   float m_display_fps{};
   float m_frame_time_ms{};
-  uint32_t m_fps_frame_count{};
+  int m_point_budget{2'000'000};
+  std::uint64_t m_selected_point_count{};
+  std::uint64_t m_rendered_point_count{};
+  std::uint64_t m_resident_point_count{};
+  std::size_t m_rendered_node_count{};
+  std::size_t m_resident_node_count{};
+  std::uint32_t m_fps_frame_count{};
 };
 }  // namespace
 
@@ -668,12 +843,9 @@ int main(int argc, char* argv[]) {
 
   try {
     PotreePointCloud point_cloud{point_cloud_directory};
-    const lvk::point_cloud::PotreeNodeIndex root_node_index{point_cloud.GetRootNodeIndex()};
+    std::clog << "Opened Potree point cloud with " << point_cloud.GetNodes().size() << " nodes\n";
 
-    std::vector<Vertex> vertices{lvk::point_cloud::LoadAndDecodePotreeNodeVertices(point_cloud, root_node_index)};
-    std::clog << "Loaded Potree root node with " << vertices.size() << " vertices\n";
-
-    PointCloudSample sample{std::move(vertices)};
+    PointCloudSample sample{std::move(point_cloud)};
     return sample.Run();
   } catch (const std::exception& exception) {
     std::cerr << exception.what() << '\n';
