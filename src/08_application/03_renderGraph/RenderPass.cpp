@@ -139,8 +139,8 @@ void RenderPass::CreateFramebuffers()
 
 void RenderPass::CreateGraphicsPipeline()
 {
-    auto vertShaderCode = ReadFile("../assets/shaders/01_01_base_vert.spv");
-    auto fragShaderCode = ReadFile("../assets/shaders/01_01_base_frag.spv");
+    auto vertShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_vert.spv");
+    auto fragShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_frag.spv");
 
     VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
     VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);

@@ -1,7 +1,7 @@
 #pragma warning(disable : 4996) // 解决 stb_image_write.h 文件中的`sprintf`不安全警告
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
@@ -513,8 +513,8 @@ int main()
         vk::raii::RenderPass renderPass(device, renderPassCreateInfo);
 
         //--------------------------------------------------------------------------------------
-        std::vector<uint32_t> vertSPV = ReadFile("../assets/shaders/01_01_base_vert.spv");
-        std::vector<uint32_t> fragSPV = ReadFile("../assets/shaders/01_01_base_frag.spv");
+        std::vector<uint32_t> vertSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_vert.spv");
+        std::vector<uint32_t> fragSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_frag.spv");
         vk::raii::ShaderModule vertexShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
         vk::raii::ShaderModule fragmentShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 

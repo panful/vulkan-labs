@@ -20,7 +20,7 @@ layout(set = 1, binding = 0) uniform UniformBufferObject_1 {
     float weight2;
 } UBO_Morph;
 
-void main() 
+void main()
 {
     vec3 tempPos = inPos + UBO_Morph.weight1 * inPos1 + UBO_Morph.weight2 * inPos2;
     vec4 viewPos = PC.view * UBO_Model.model * vec4(tempPos, 1.);

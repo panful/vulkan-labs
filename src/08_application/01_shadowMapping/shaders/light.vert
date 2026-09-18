@@ -13,14 +13,14 @@ layout(binding = 0) uniform UniformBufferObject{
 } ubo;
 
 // [-1,1] -> [0,1]
-const mat4 convertMat = mat4( 
+const mat4 convertMat = mat4(
     0.5, 0.0, 0.0, 0.0,
     0.0, 0.5, 0.0, 0.0,
     0.0, 0.0, 1.0, 0.0,
     0.5, 0.5, 0.0, 1.0
 );
 
-void main() 
+void main()
 {
     vec4 modelPos = ubo.model * vec4(inPos, 1.0);
 

@@ -8,7 +8,7 @@ out gl_PerVertex {
 
 layout (location = 0) out vec2 outTexCoord;
 
-void main() 
+void main()
 {
     outTexCoord = inPosition_TexCoord.zw;
     gl_Position = vec4(inPosition_TexCoord.xy, 0.0f, 1.0f);

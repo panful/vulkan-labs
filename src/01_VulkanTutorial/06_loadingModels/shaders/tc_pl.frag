@@ -74,7 +74,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 
-void main() 
+void main()
 {
     vec3 fragColor = vec3(texture(texSampler, inTexCoord));
 

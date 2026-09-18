@@ -75,7 +75,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 
-void main() 
+void main()
 {
     vec3 N = normalize(inNormal);
     vec3 V = normalize(PC.cameraPos - inWorldPos);
@@ -133,16 +133,16 @@ void main()
     color = pow(color, vec3(1.0 / 2.2));
 
     outColor = vec4(color, 1.0);
-}  
+}
 
-// void main() 
+// void main()
 // {
 //     vec3 lightColor = UBO_Color.color;
-    
+
 //     vec3 dx = dFdx(inViewPos);
 //     vec3 dy = dFdy(inViewPos);
 //     vec3 normal = normalize(cross(dx, dy));
 //     lightColor *= max(0., -normal.z);
-                        
+
 //     outColor = vec4(lightColor, 1.);
 // }

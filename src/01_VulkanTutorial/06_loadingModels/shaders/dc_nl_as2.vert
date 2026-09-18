@@ -19,7 +19,7 @@ layout(set = 1, binding = 0) readonly buffer UniformBufferObject_1 {
     mat4 jointMat[];
 } UBO_Skin;
 
-void main() 
+void main()
 {
     mat4 skinMat = inWeight.x * UBO_Skin.jointMat[int(inJoint.x)] +
                    inWeight.y * UBO_Skin.jointMat[int(inJoint.y)] +

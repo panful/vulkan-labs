@@ -6,7 +6,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(constant_id = 0) const int COLOR_MODE = 0;
 
-void main() 
+void main()
 {
     switch(COLOR_MODE)
     {
@@ -23,5 +23,5 @@ void main()
             outColor = vec4(1.0);
             break;
     }
-    
+
 }

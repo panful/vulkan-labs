@@ -1,7 +1,7 @@
 #pragma warning(disable : 4996) // 解决 stb_image_write.h 文件中的`sprintf`不安全警告
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -14,11 +14,11 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <list>
 #include <mutex>
 #include <queue>
 #include <random>
 #include <thread>
-#include <list>
 
 #include "../09_viewer/Timer.hpp"
 
@@ -702,8 +702,8 @@ public:
         m_renderPass = vk::raii::RenderPass(m_device, renderPassCreateInfo);
 
         //--------------------------------------------------------------------------------------
-        std::vector<uint32_t> vertSPV = ReadFile("../assets/shaders/01_03_base_vert.spv");
-        std::vector<uint32_t> fragSPV = ReadFile("../assets/shaders/01_03_base_frag.spv");
+        std::vector<uint32_t> vertSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_03_base_vert.spv");
+        std::vector<uint32_t> fragSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_03_base_frag.spv");
         vk::raii::ShaderModule vertexShaderModule(m_device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
         vk::raii::ShaderModule fragmentShaderModule(m_device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 

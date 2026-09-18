@@ -16,18 +16,16 @@ function(BuildTarget path)
             add_executable(${target_name} ${subdir_sources} ${subdir_headers})
 
             # 3rdparty
-            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/includes)
-            target_link_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/libs)
-            target_link_libraries(${target_name} PRIVATE glfw imgui)
+            target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/third_party)
+            target_link_libraries(${target_name} PRIVATE glfw imgui project_warnings)
+            target_compile_definitions(${target_name} PRIVATE "PROJECT_ASSETS_DIR=\"${PROJECT_ASSETS_DIR}/\"")
+            if(ENABLE_CLANG_TIDY)
+                set_target_properties(${target_name} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+            endif()
 
             # vulkan
             target_include_directories(${target_name} PRIVATE ${Vulkan_INCLUDE_DIR})
             target_link_libraries(${target_name} PRIVATE ${Vulkan_LIBRARIES})
-
-            # 确保 imgui 已经成功构建
-            add_dependencies(${target_name} imgui)
-
-            # install(TARGETS ${target_name} RUNTIME DESTINATION .)
 
         endforeach(subdir ${subdirectories})
     endif()

@@ -18,10 +18,10 @@
 #include <stdexcept>
 #include <vector>
 
-constexpr size_t MAX_FRAMES_IN_FLIGHT { 2 };
+constexpr size_t MAX_FRAMES_IN_FLIGHT {2};
 
 // 需要开启的校验层的名称
-const std::vector<const char*> g_validationLayers = { "VK_LAYER_KHRONOS_validation" };
+const std::vector<const char*> g_validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 // 是否启用校验层
 #ifdef NDEBUG
@@ -164,9 +164,13 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            CreateBuffer(computeUboBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_computeUboBuffers.at(i),
-                m_computeUboBuffersMemory.at(i));
+            CreateBuffer(
+                computeUboBufferSize,
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                m_computeUboBuffers.at(i),
+                m_computeUboBuffersMemory.at(i)
+            );
             vkMapMemory(m_device, m_computeUboBuffersMemory.at(i), 0, computeUboBufferSize, 0, &m_computeUboBuffersMapped.at(i));
         }
 
@@ -179,19 +183,23 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         {
-            CreateBuffer(indirectDrawBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_computeResultBuffers.at(i),
-                m_computeResultBuffersMemory.at(i));
+            CreateBuffer(
+                indirectDrawBufferSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                m_computeResultBuffers.at(i),
+                m_computeResultBuffersMemory.at(i)
+            );
             vkMapMemory(m_device, m_computeResultBuffersMemory.at(i), 0, indirectDrawBufferSize, 0, &m_computeResultBuffersMapped.at(i));
         }
     }
 
     void UpdateComputeUniformBuffer(size_t currentImage)
     {
-        static uint32_t n { 0 };
+        static uint32_t n {0};
         n++;
 
-        UBOCompute ubo { n, n, n, n };
+        UBOCompute ubo {n, n, n, n};
         std::memcpy(m_computeUboBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
 
@@ -211,7 +219,7 @@ private:
         buf.descriptorCount              = 1;
         buf.pImmutableSamplers           = nullptr;
 
-        std::array bindings = { ubo, buf };
+        std::array bindings = {ubo, buf};
 
         VkDescriptorSetLayoutCreateInfo layoutInfo = {};
         layoutInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -286,7 +294,7 @@ private:
 
     void CreateComputePipeline()
     {
-        auto computeShaderCode = ReadFile("../assets/shaders/04_02_base_comp.spv");
+        auto computeShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/04_02_base_comp.spv");
 
         VkShaderModule computeShaderModule = CreateShaderModule(computeShaderCode);
 
@@ -352,7 +360,8 @@ private:
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipeline);
         vkCmdBindDescriptorSets(
-            commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipelineLayout, 0, 1, &m_computeDescriptorSets.at(m_currentFrame), 0, 0);
+            commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_computePipelineLayout, 0, 1, &m_computeDescriptorSets.at(m_currentFrame), 0, 0
+        );
         vkCmdDispatch(commandBuffer, 1, 1, 1);
 
         vkEndCommandBuffer(commandBuffer);
@@ -432,7 +441,7 @@ private:
         // 检查需要开启的校验层是否可以在所有可用的校验层列表中找到
         for (const char* layerName : g_validationLayers)
         {
-            bool layerFound { false };
+            bool layerFound {false};
 
             for (const auto& layerProperties : availableLayers)
             {
@@ -501,7 +510,7 @@ private:
     void PickPhysicalDevice()
     {
         // 获取支持 Vulkan 的显卡数量
-        uint32_t deviceCount { 0 };
+        uint32_t deviceCount {0};
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
 
         if (0 == deviceCount)
@@ -613,10 +622,10 @@ private:
     void CreateLogicalDevice()
     {
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies { m_queueFamilyIndices.computeFamily.value(), m_queueFamilyIndices.transferFamily.value() };
+        std::set<uint32_t> uniqueQueueFamilies {m_queueFamilyIndices.computeFamily.value(), m_queueFamilyIndices.transferFamily.value()};
 
         // 控制指令缓存执行顺序的优先级，即使只有一个队列也要显示指定优先级，范围：[0.0, 1.0]
-        float queuePriority { 1.f };
+        float queuePriority {1.f};
         for (auto queueFamily : uniqueQueueFamilies)
         {
             // 描述队列簇中预要申请使用的队列数量
@@ -665,7 +674,7 @@ private:
     /// @return
     bool CheckDeviceExtensionSupported(const VkPhysicalDevice device) const noexcept
     {
-        uint32_t extensionCount { 0 };
+        uint32_t extensionCount {0};
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
         std::vector<VkExtensionProperties> availableExtensions(extensionCount);
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
@@ -781,8 +790,8 @@ private:
     /// @param properties
     /// @param buffer
     /// @param bufferMemory
-    void CreateBuffer(
-        VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const
+    void
+    CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const
     {
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -910,10 +919,12 @@ private:
     /// @param pCallbackData 包含了调试信息的字符串、存储有和消息相关的 Vulkan 对象句柄的数组、数组中的对象个数
     /// @param pUserData 指向了设置回调函数时，传递的数据指针
     /// @return 引发校验层处理的 Vulkan API 调用是否中断，通常只在测试校验层本身时会返回true，其余都应该返回 VK_FALSE
-    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData) noexcept
+        void* pUserData
+    ) noexcept
     {
         std::clog << "===========================================\n"
                   << "Debug::validation layer: " << pCallbackData->pMessage << '\n';
@@ -927,10 +938,12 @@ private:
     /// @param pAllocator
     /// @param pCallback
     /// @return
-    static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
+    static VkResult CreateDebugUtilsMessengerEXT(
+        VkInstance instance,
         const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
         const VkAllocationCallbacks* pAllocator,
-        VkDebugUtilsMessengerEXT* pCallback) noexcept
+        VkDebugUtilsMessengerEXT* pCallback
+    ) noexcept
     {
         // vkCreateDebugUtilsMessengerEXT是一个扩展函数，不会被 Vulkan 库自动加载，所以需要手动加载
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -949,8 +962,8 @@ private:
     /// @param instance
     /// @param callback
     /// @param pAllocator
-    static void DestroyDebugUtilsMessengerEXT(
-        VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* pAllocator) noexcept
+    static void
+    DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT callback, const VkAllocationCallbacks* pAllocator) noexcept
     {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 
@@ -980,23 +993,23 @@ private:
     }
 
 private:
-    VkInstance m_instance { nullptr };
-    VkDebugUtilsMessengerEXT m_debugMessenger { nullptr };
-    VkPhysicalDevice m_physicalDevice { nullptr };
-    VkDevice m_device { nullptr };
+    VkInstance m_instance {nullptr};
+    VkDebugUtilsMessengerEXT m_debugMessenger {nullptr};
+    VkPhysicalDevice m_physicalDevice {nullptr};
+    VkDevice m_device {nullptr};
 
-    size_t m_currentFrame { 0 };
-    VkDescriptorPool m_descriptorPool { nullptr };
+    size_t m_currentFrame {0};
+    VkDescriptorPool m_descriptorPool {nullptr};
     QueueFamilyIndices m_queueFamilyIndices {};
-    VkCommandPool m_computeCommandPool { nullptr };
-    VkCommandPool m_transferCommandPool { nullptr };
-    VkQueue m_transferQueue { nullptr }; // 传输队列
-    VkQueue m_computeQueue { nullptr };  // 计算队列
+    VkCommandPool m_computeCommandPool {nullptr};
+    VkCommandPool m_transferCommandPool {nullptr};
+    VkQueue m_transferQueue {nullptr}; // 传输队列
+    VkQueue m_computeQueue {nullptr};  // 计算队列
 
-    VkPipeline m_computePipeline { nullptr };
-    VkPipelineLayout m_computePipelineLayout { nullptr };
+    VkPipeline m_computePipeline {nullptr};
+    VkPipelineLayout m_computePipelineLayout {nullptr};
     std::vector<VkCommandBuffer> m_computeCommandBuffers {};
-    VkDescriptorSetLayout m_computeDescriptorSetLayout { nullptr };
+    VkDescriptorSetLayout m_computeDescriptorSetLayout {nullptr};
     std::vector<VkDescriptorSet> m_computeDescriptorSets {};
     std::vector<VkFence> m_computeInFlightFences {};
 

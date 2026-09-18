@@ -155,8 +155,8 @@ void Actor::Update(const std::shared_ptr<Device> device, const Viewer* viewer)
     }
     m_needUpdate = false;
 
-    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../assets/shaders/07_09_base_vert.spv");
-    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../assets/shaders/07_09_base_frag.spv");
+    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader(PROJECT_ASSETS_DIR "shaders/07_09_base_vert.spv");
+    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader(PROJECT_ASSETS_DIR "shaders/07_09_base_frag.spv");
     vk::raii::ShaderModule vertexShaderModule(device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
     vk::raii::ShaderModule fragmentShaderModule(device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 

@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject_0 {
     mat4 model;
 } UBO_Model;
 
-void main() 
+void main()
 {
     vec4 worldPos = UBO_Model.model * vec4(inPos, 1.);
     vec4 viewPos  = PC.view * worldPos;

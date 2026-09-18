@@ -5,7 +5,7 @@ layout(location = 1) in vec3 inColor;
 
 layout(location = 0) out vec3 fragColor;
 
-void main() 
+void main()
 {
     float x = inPos.x + .3f * gl_InstanceIndex;
     gl_Position = vec4(x, inPos.y, 0.f, 1.f);

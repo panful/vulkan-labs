@@ -10,7 +10,7 @@ layout(push_constant) uniform Pushconstant{
     vec3 frag_color;
 } PC;
 
-void main() 
+void main()
 {
     gl_Position = vec4(inPos, 0.0, 1.0);
     fragColor = PC.vert_color;

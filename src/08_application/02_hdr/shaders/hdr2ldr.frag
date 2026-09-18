@@ -12,7 +12,7 @@ layout (push_constant) uniform Pushconstant
     float exposure;
 } pc;
 
-void main() 
+void main()
 {
     vec4 hdrColor = texture(samplerColor, inUV);
     vec3 color    = hdrColor.rgb;

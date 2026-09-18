@@ -10,7 +10,7 @@ layout(location = 2) out vec4 outPosition;
 
 layout(binding = 6) uniform sampler2D texSampler;
 
-void main() 
+void main()
 {
     outColor = texture(texSampler, fragTexCoord);
     outNormal = vec4(normalize(fragNormal), 1.0);

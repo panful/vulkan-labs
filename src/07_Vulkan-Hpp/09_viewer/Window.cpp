@@ -359,8 +359,8 @@ void Window::InitWindow()
     m_renderPass = vk::raii::RenderPass(m_device->device, renderPassCreateInfo);
 
     //--------------------------------------------------------------------------------------
-    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader("../assets/shaders/07_08_quad_vert.spv");
-    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader("../assets/shaders/07_08_quad_frag.spv");
+    std::vector<uint32_t> vertSPV = Utils::ReadSPVShader(PROJECT_ASSETS_DIR "shaders/07_08_quad_vert.spv");
+    std::vector<uint32_t> fragSPV = Utils::ReadSPVShader(PROJECT_ASSETS_DIR "shaders/07_08_quad_frag.spv");
     vk::raii::ShaderModule vertexShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
     vk::raii::ShaderModule fragmentShaderModule(m_device->device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 

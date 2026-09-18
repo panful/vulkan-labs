@@ -27,7 +27,7 @@ float filterPCF(vec4 shadowCoord)
     float shadowFactor = 0.0;
     int count = 0;
     int range = 1;
-    
+
     for (int x = -range; x <= range; x++)
     {
         for (int y = -range; y <= range; y++)
@@ -35,12 +35,12 @@ float filterPCF(vec4 shadowCoord)
             shadowFactor += shadowCalculation(shadowCoord, vec2(dx*x, dy*y));
             count++;
         }
-    
+
     }
     return shadowFactor / count;
 }
 
-void main() 
+void main()
 {
     vec4 pos = inPosInLightSpace / inPosInLightSpace.w;
     float shadow = PC.enablePCF == 1 ? filterPCF(pos) : shadowCalculation(pos, vec2(0.0));

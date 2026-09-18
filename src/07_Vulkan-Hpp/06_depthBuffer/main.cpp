@@ -1,9 +1,9 @@
 #pragma warning(disable : 4996) // 解决 stb_image_write.h 文件中的`sprintf`不安全警告
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <stb_image/stb_image.h>
 
 #define GLM_FORCE_RADIANS           // glm函数的参数使用弧度
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // 透视矩阵深度值范围 [-1, 1] => [0, 1]
@@ -130,7 +130,7 @@ vk::raii::Pipeline makeGraphicsPipeline(
         vk::VertexInputBindingDescription {0, sizeof(Vertex), vk::VertexInputRate::eVertex}
     };
     std::array inputAttribute {
-        vk::VertexInputAttributeDescription {0, 0, vk::Format::eR32G32B32Sfloat,    offsetof(Vertex, Vertex::pos)     },
+        vk::VertexInputAttributeDescription {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, Vertex::pos)     },
         vk::VertexInputAttributeDescription {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, Vertex::color)   },
         vk::VertexInputAttributeDescription {2, 0, vk::Format::eR32G32Sfloat,    offsetof(Vertex, Vertex::texCoord)},
     };
@@ -838,8 +838,8 @@ int main()
         vk::raii::RenderPass renderPass(device, renderPassCreateInfo);
 
         //--------------------------------------------------------------------------------------
-        std::vector<uint32_t> vertSPV = ReadFile("../assets/shaders/01_05_base_vert.spv");
-        std::vector<uint32_t> fragSPV = ReadFile("../assets/shaders/01_05_base_frag.spv");
+        std::vector<uint32_t> vertSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_05_base_vert.spv");
+        std::vector<uint32_t> fragSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/01_05_base_frag.spv");
         vk::raii::ShaderModule vertexShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
         vk::raii::ShaderModule fragmentShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 
@@ -915,7 +915,7 @@ int main()
         copyToDevice(uniformBufferObjects[2].deviceMemory, defaultUBO);
 
         int texWidth {0}, texHeight {0}, texChannels {0};
-        auto pixels = stbi_load("../assets/textures/nightsky.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        auto pixels = stbi_load(PROJECT_ASSETS_DIR "textures/nightsky.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         assert(pixels);
 
         TextureData textureData(physicalDevice, device, {static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight)});

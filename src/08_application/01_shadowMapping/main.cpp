@@ -302,10 +302,12 @@ private:
         auto deltaLongitude = (std::numbers::pi_v<float> / (longitude - 1));
 
         // 最上面单独的一个点
-        vertices.emplace_back(Vertex {
-            {0.f, radius, 0.f},
-            {0.f, radius, 0.f}
-        });
+        vertices.emplace_back(
+            Vertex {
+                {0.f, radius, 0.f},
+                {0.f, radius, 0.f}
+        }
+        );
 
         // 每一层，即纬线所在的圈
         for (size_t i = 1; i < longitude - 1; ++i)
@@ -319,18 +321,22 @@ private:
                 auto x = r * std::sin(j * deltaLatitude);
                 auto z = r * std::cos(j * deltaLatitude);
 
-                vertices.emplace_back(Vertex {
-                    {x, y, z},
-                    {x, y, z},
-                });
+                vertices.emplace_back(
+                    Vertex {
+                        {x, y, z},
+                        {x, y, z},
+                }
+                );
             }
         }
 
         // 最下面单独的一个点
-        vertices.emplace_back(Vertex {
-            {0.f, -radius, 0.f},
-            {0.f, -radius, 0.f}
-        });
+        vertices.emplace_back(
+            Vertex {
+                {0.f, -radius, 0.f},
+                {0.f, -radius, 0.f}
+        }
+        );
 
         //---------------------------------------------------
         // 北极圈
@@ -468,17 +474,17 @@ private:
     {
         // clang-format off
         std::vector<VkDescriptorPoolSize> poolSizes {
-            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 }, 
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
             { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 }, 
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 }, 
-            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } 
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
         };
         // clang-format on
 
@@ -975,8 +981,8 @@ private:
         createInfo.imageFormat              = surfaceFormat.format;
         createInfo.imageColorSpace          = surfaceFormat.colorSpace;
         createInfo.imageExtent              = extent;
-        createInfo.imageArrayLayers         = 1;                     // 图像包含的层次，通常为1，3d图像大于1
-        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
+        createInfo.imageArrayLayers         = 1;                                   // 图像包含的层次，通常为1，3d图像大于1
+        createInfo.imageUsage               = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 指定在图像上进行怎样的操作，比如显示（颜色附件）、后处理等
 
         auto indices                  = FindQueueFamilies(m_physicalDevice);
         uint32_t queueFamilyIndices[] = {static_cast<uint32_t>(indices.graphicsFamily.value()), static_cast<uint32_t>(indices.presentFamily.value())};
@@ -1083,10 +1089,10 @@ private:
     {
         // 附着描述
         VkAttachmentDescription colorAttachment = {};
-        colorAttachment.format                  = m_swapChainImageFormat;       // 颜色缓冲附着的格式
-        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;        // 采样数
-        colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;  // 渲染之前对附着中的数据（颜色和深度）进行操作
-        colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE; // 渲染之后对附着中的数据（颜色和深度）进行操作
+        colorAttachment.format                  = m_swapChainImageFormat;           // 颜色缓冲附着的格式
+        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;            // 采样数
+        colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;      // 渲染之前对附着中的数据（颜色和深度）进行操作
+        colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;     // 渲染之后对附着中的数据（颜色和深度）进行操作
         colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // 渲染之前对模板缓冲的操作
         colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 渲染之后对模板缓冲的操作
         colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;        // 渲染流程开始前的图像布局方式
@@ -1112,16 +1118,16 @@ private:
         depthAttachmentRef.layout                = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         // 子流程
-        VkSubpassDescription subpass = {};
-        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
-        subpass.colorAttachmentCount = 1;                               // 颜色附着个数
-        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
-        subpass.pDepthStencilAttachment = &depthAttachmentRef; // 指定深度模板附着，深度模板附着只能是一个，所以不用设置数量
+        VkSubpassDescription subpass    = {};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
+        subpass.colorAttachmentCount    = 1;                               // 颜色附着个数
+        subpass.pColorAttachments       = &colorAttachmentRef;             // 指定颜色附着
+        subpass.pDepthStencilAttachment = &depthAttachmentRef;             // 指定深度模板附着，深度模板附着只能是一个，所以不用设置数量
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
-        dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // 渲染流程开始前的子流程，为了避免出现循环依赖，dst的值必须大于src的值
-        dependency.dstSubpass = 0;                   // 渲染流程结束后的子流程
+        dependency.srcSubpass          = VK_SUBPASS_EXTERNAL; // 渲染流程开始前的子流程，为了避免出现循环依赖，dst的值必须大于src的值
+        dependency.dstSubpass          = 0;                   // 渲染流程结束后的子流程
         dependency.srcStageMask =
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT; // 指定需要等待的管线阶段
         dependency.srcAccessMask = 0;                                                                   // 指定子流程将进行的操作类型
@@ -1167,8 +1173,8 @@ private:
 
     void CreateGraphicsPipelineLight()
     {
-        auto vertShaderCode = ReadFile("../assets/shaders/08_01_light_vert.spv");
-        auto fragShaderCode = ReadFile("../assets/shaders/08_01_light_frag.spv");
+        auto vertShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/08_01_light_vert.spv");
+        auto fragShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/08_01_light_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -1201,8 +1207,8 @@ private:
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
         inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
+        inputAssembly.topology                               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
+        inputAssembly.primitiveRestartEnable                 = VK_FALSE;
 
         VkPipelineViewportStateCreateInfo viewportState = {};
         viewportState.sType                             = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1307,7 +1313,7 @@ private:
         pipelineInfo.renderPass                   = m_lightRenderPass;
         pipelineInfo.subpass                      = 0;       // 子流程在子流程数组中的索引
         pipelineInfo.basePipelineHandle           = nullptr; // 以一个创建好的图形管线为基础创建一个新的图形管线
-        pipelineInfo.basePipelineIndex            = -1; // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
+        pipelineInfo.basePipelineIndex            = -1;      // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
         pipelineInfo.pDepthStencilState           = &depthStencil;
 
         if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_lightGraphicsPipeline))
@@ -1471,8 +1477,8 @@ private:
     /// @details 在 Vulkan 中几乎不允许对图形管线进行动态设置，也就意味着每一种状态都需要提前创建一个图形管线
     void CreateGraphicsPipeline()
     {
-        auto vertShaderCode = ReadFile("../assets/shaders/08_01_base_vert.spv");
-        auto fragShaderCode = ReadFile("../assets/shaders/08_01_base_frag.spv");
+        auto vertShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/08_01_base_vert.spv");
+        auto fragShaderCode = ReadFile(PROJECT_ASSETS_DIR "shaders/08_01_base_frag.spv");
 
         VkShaderModule vertShaderModule = CreateShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = CreateShaderModule(fragShaderCode);
@@ -1505,8 +1511,8 @@ private:
         // 拓扑信息
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
         inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
+        inputAssembly.topology                               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 指定绘制的图元类型：点、线、三角形
+        inputAssembly.primitiveRestartEnable                 = VK_FALSE;
 
         VkPipelineViewportStateCreateInfo viewportState = {};
         viewportState.sType                             = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1605,7 +1611,7 @@ private:
         pipelineInfo.renderPass                   = m_shadowMapRenderPass;
         pipelineInfo.subpass                      = 0;       // 子流程在子流程数组中的索引
         pipelineInfo.basePipelineHandle           = nullptr; // 以一个创建好的图形管线为基础创建一个新的图形管线
-        pipelineInfo.basePipelineIndex            = -1; // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
+        pipelineInfo.basePipelineIndex            = -1;      // 只有该结构体的成员 flags 被设置为 VK_PIPELINE_CREATE_DERIVATIVE_BIT 才有效
         pipelineInfo.pDepthStencilState           = &depthStencil;
 
         if (VK_SUCCESS != vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_shadowMapGraphicsPipeline))
@@ -1641,10 +1647,10 @@ private:
     {
         // 附着描述
         VkAttachmentDescription colorAttachment = {};
-        colorAttachment.format                  = m_swapChainImageFormat;       // 颜色缓冲附着的格式
-        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;        // 采样数
-        colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;  // 渲染之前对附着中的数据（颜色和深度）进行操作
-        colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE; // 渲染之后对附着中的数据（颜色和深度）进行操作
+        colorAttachment.format                  = m_swapChainImageFormat;                   // 颜色缓冲附着的格式
+        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;                    // 采样数
+        colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;              // 渲染之前对附着中的数据（颜色和深度）进行操作
+        colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;             // 渲染之后对附着中的数据（颜色和深度）进行操作
         colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;          // 渲染之前对模板缓冲的操作
         colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;         // 渲染之后对模板缓冲的操作
         colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;                // 渲染流程开始前的图像布局方式
@@ -1670,16 +1676,16 @@ private:
         depthAttachmentRef.layout                = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         // 子流程
-        VkSubpassDescription subpass = {};
-        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
-        subpass.colorAttachmentCount = 1;                               // 颜色附着个数
-        subpass.pColorAttachments    = &colorAttachmentRef;             // 指定颜色附着
-        subpass.pDepthStencilAttachment = &depthAttachmentRef; // 指定深度模板附着，深度模板附着只能是一个，所以不用设置数量
+        VkSubpassDescription subpass    = {};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS; // 图形渲染子流程
+        subpass.colorAttachmentCount    = 1;                               // 颜色附着个数
+        subpass.pColorAttachments       = &colorAttachmentRef;             // 指定颜色附着
+        subpass.pDepthStencilAttachment = &depthAttachmentRef;             // 指定深度模板附着，深度模板附着只能是一个，所以不用设置数量
 
         // 渲染流程使用的依赖信息
         VkSubpassDependency dependency = {};
-        dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // 渲染流程开始前的子流程，为了避免出现循环依赖，dst的值必须大于src的值
-        dependency.dstSubpass = 0;                   // 渲染流程结束后的子流程
+        dependency.srcSubpass          = VK_SUBPASS_EXTERNAL; // 渲染流程开始前的子流程，为了避免出现循环依赖，dst的值必须大于src的值
+        dependency.dstSubpass          = 0;                   // 渲染流程结束后的子流程
         dependency.srcStageMask =
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT; // 指定需要等待的管线阶段
         dependency.srcAccessMask = 0;                                                                   // 指定子流程将进行的操作类型
@@ -1773,7 +1779,7 @@ private:
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // 指定怎样使用指令缓冲
-        beginInfo.pInheritanceInfo         = nullptr; // 只用于辅助指令缓冲，指定从调用它的主要指令缓冲继承的状态
+        beginInfo.pInheritanceInfo         = nullptr;                                      // 只用于辅助指令缓冲，指定从调用它的主要指令缓冲继承的状态
 
         if (VK_SUCCESS != vkBeginCommandBuffer(commandBuffer, &beginInfo))
         {
@@ -1925,7 +1931,7 @@ private:
         submitInfo.commandBufferCount   = 1;
         submitInfo.pCommandBuffers      = &m_commandBuffers[imageIndex];                  // 指定实际被提交执行的指令缓冲对象
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
+        submitInfo.pSignalSemaphores    = &m_renderFinishedSemaphores.at(m_currentFrame); // 指定在指令缓冲执行结束后发出信号的信号量对象
 
         // 提交指令缓冲给图形指令队列
         // 如果不等待上一次提交的指令结束执行，可能会导致内存泄漏
@@ -1943,7 +1949,7 @@ private:
         presentInfo.swapchainCount     = 1;
         presentInfo.pSwapchains        = &m_swapChain;                                   // 指定用于呈现图像的交换链
         presentInfo.pImageIndices      = &imageIndex;                                    // 指定需要呈现的图像在交换链中的索引
-        presentInfo.pResults           = nullptr; // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
+        presentInfo.pResults           = nullptr;                                        // 可以通过该变量获取每个交换链的呈现操作是否成功的信息
 
         // 请求交换链进行图像呈现操作
         result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
@@ -2391,12 +2397,12 @@ private:
             descriptorWrite.sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrite.dstSet           = m_shadowMapDescriptorSets.at(i); // 指定要更新的描述符集对象
             descriptorWrite.dstBinding       = 0;                               // 指定缓冲绑定
-            descriptorWrite.dstArrayElement  = 0;           // 描述符数组的第一个元素的索引（没有数组就使用0）
+            descriptorWrite.dstArrayElement  = 0;                               // 描述符数组的第一个元素的索引（没有数组就使用0）
             descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             descriptorWrite.descriptorCount  = 1;
-            descriptorWrite.pBufferInfo      = &bufferInfo; // 指定描述符引用的缓冲数据
-            descriptorWrite.pImageInfo       = nullptr;     // 指定描述符引用的图像数据
-            descriptorWrite.pTexelBufferView = nullptr;     // 指定描述符引用的缓冲视图
+            descriptorWrite.pBufferInfo      = &bufferInfo;                     // 指定描述符引用的缓冲数据
+            descriptorWrite.pImageInfo       = nullptr;                         // 指定描述符引用的图像数据
+            descriptorWrite.pTexelBufferView = nullptr;                         // 指定描述符引用的缓冲视图
 
             // 更新描述符的配置
             vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
@@ -2440,9 +2446,9 @@ private:
         imageInfo.tiling        = tiling;                    // 设置之后不可修改
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 图像数据是接收方，不需要保留第一次变换时的纹理数据
         imageInfo.usage         = usage;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // 只被一个队列族使用（支持传输操作的队列族），所以使用独占模式
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;         // 设置多重采样，只对用作附着的图像对象有效
-        imageInfo.flags   = 0; // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
+        imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE; // 只被一个队列族使用（支持传输操作的队列族），所以使用独占模式
+        imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;     // 设置多重采样，只对用作附着的图像对象有效
+        imageInfo.flags         = 0;                         // 可以用来设置稀疏图像的优化，比如体素地形没必要为“空气”部分分配内存
 
         if (VK_SUCCESS != vkCreateImage(m_device, &imageInfo, nullptr, &image))
         {

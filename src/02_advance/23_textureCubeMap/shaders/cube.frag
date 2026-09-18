@@ -5,7 +5,7 @@ layout (location = 0) out vec4 outFragColor;
 
 layout (binding = 1) uniform samplerCube samplerCubeMap;
 
-void main() 
+void main()
 {
     outFragColor = texture(samplerCubeMap, inUVW);
 }

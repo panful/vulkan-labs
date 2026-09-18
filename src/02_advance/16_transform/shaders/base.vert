@@ -11,7 +11,7 @@ layout(binding = 0) uniform UniformBufferObject{
     mat4 proj;
 } ubo;
 
-void main() 
+void main()
 {
     gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPos, 1.0);
     fragColor = inColor;

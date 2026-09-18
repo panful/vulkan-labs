@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.4...3.20 FATAL_ERROR)
 
 project(GLFW_LIB_GENERATOR VERSION 3.4.0 LANGUAGES C)
 
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${3rdPartyArchiveOutputDir})
-
 include(CMakeDependentOption)
 cmake_dependent_option(GLFW_BUILD_WIN32 "Build support for Win32" ON "WIN32" OFF)
 cmake_dependent_option(GLFW_BUILD_X11 "Build support for X11" ON "UNIX;NOT APPLE" OFF)
@@ -93,6 +91,8 @@ set_target_properties(glfw PROPERTIES
                       OUTPUT_NAME ${target_name}
                       C_STANDARD 99
                       C_EXTENSIONS OFF)
+
+target_include_directories(glfw PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 find_package(Threads REQUIRED)
 target_link_libraries(glfw PRIVATE Threads::Threads)
@@ -191,9 +191,3 @@ endif()
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(glfw PRIVATE _DEFAULT_SOURCE)
 endif()
-
-# 拷贝头文件
-add_custom_command(TARGET ${target_name}
-    POST_BUILD COMMAND ${CMAKE_COMMAND} -E
-        copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include ${3rdPartyHeadersOutputDir}
-)

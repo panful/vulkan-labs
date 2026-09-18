@@ -12,7 +12,7 @@ float LinearizeDepth(float depth)
     return (depth * (near + far) - near) / (far - near);
 }
 
-void main() 
+void main()
 {
     outFragColor = vec4(1.0);
 

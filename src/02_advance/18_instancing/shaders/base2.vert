@@ -7,7 +7,7 @@ layout(location = 3) in vec2 inOffset;
 
 layout(location = 0) out vec3 fragColor;
 
-void main() 
+void main()
 {
     vec2 pos = inPos + inOffset;
     gl_Position = vec4(pos, 0.f, 1.f);

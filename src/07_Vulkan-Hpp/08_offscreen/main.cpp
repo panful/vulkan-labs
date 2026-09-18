@@ -912,8 +912,8 @@ int main()
         vk::raii::RenderPass renderPassOffscreen(device, renderPassCreateInfoOffscreen);
 
         //--------------------------------------------------------------------------------------
-        std::vector<uint32_t> vertSPVOffscreen = ReadFile("../assets/shaders/01_01_base_vert.spv");
-        std::vector<uint32_t> fragSPVOffscreen = ReadFile("../assets/shaders/01_01_base_frag.spv");
+        std::vector<uint32_t> vertSPVOffscreen = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_vert.spv");
+        std::vector<uint32_t> fragSPVOffscreen = ReadFile(PROJECT_ASSETS_DIR "shaders/01_01_base_frag.spv");
         vk::raii::ShaderModule vertexShaderModuleOffscreen(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPVOffscreen));
         vk::raii::ShaderModule fragmentShaderModuleOffscreen(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPVOffscreen));
 
@@ -966,8 +966,8 @@ int main()
         vk::raii::RenderPass renderPass(device, renderPassCreateInfo);
 
         //--------------------------------------------------------------------------------------
-        std::vector<uint32_t> vertSPV = ReadFile("../assets/shaders/07_08_quad_vert.spv");
-        std::vector<uint32_t> fragSPV = ReadFile("../assets/shaders/07_08_quad_frag.spv");
+        std::vector<uint32_t> vertSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/07_08_quad_vert.spv");
+        std::vector<uint32_t> fragSPV = ReadFile(PROJECT_ASSETS_DIR "shaders/07_08_quad_frag.spv");
         vk::raii::ShaderModule vertexShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), vertSPV));
         vk::raii::ShaderModule fragmentShaderModule(device, vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), fragSPV));
 
